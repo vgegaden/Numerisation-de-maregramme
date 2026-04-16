@@ -1,5 +1,6 @@
 #test méthode avec segmentation couleur (extraction)
 #avec squelettisation (extraction de la ligne centrale)
+#
 
 
 import cv2
