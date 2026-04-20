@@ -69,7 +69,7 @@ def extraction_reconstruction_test1(chemin_img):
     #logique recherche courbe jour 1
     seuil_iso = 15 #distance recherche voisin
     candidats_depart = []
-    longueur_chaine_min = 20
+    longueur_chaine_min = 25
 
     debut_recherhce = int(largeur_image*0.6)
 
@@ -80,8 +80,8 @@ def extraction_reconstruction_test1(chemin_img):
             idx_gauche = tree.query_ball_point(p, 30)
             voisins_gauche = [points_list[i] for i in idx_gauche if points_list[i][0] < p[0] - 2]
             #verifier qu'il y a bien une suite à droite (pour s'assurer que c'est une courbe)
-            idx_droite = tree.query_ball_point(p, 30)
-            voisins_droite = [points_list[i] for i in idx_droite if points_list[i][0] > p[0] + 2]
+            #idx_droite = tree.query_ball_point(p, 30)
+            #voisins_droite = [points_list[i] for i in idx_droite if points_list[i][0] > p[0] + 2]
             if len(voisins_gauche) == 0:
                 p_suivi = p
                 points_suivis = set()
@@ -95,7 +95,7 @@ def extraction_reconstruction_test1(chemin_img):
 
                     if candidats_suivi:
                         p_suivi = min(candidats_suivi, key=lambda pt: ((pt[0]-p_suivi[0])**2 + (pt[1]-p_suivi[1])**2))
-                        points_suivis.add(p_suivi)
+                        #points_suivis.add(p_suivi)
                     else:
                         est_une_chaine = False
                         break #la chaîne casse trop tôt, c'est un débris
@@ -110,8 +110,14 @@ def extraction_reconstruction_test1(chemin_img):
         print(f"Début automatique détecté à : {current_point}")
 
     else :
-        current_point = min(points_list, key =lambda p: p[0])
-        print("Début par defaut (bord gauche)")
+        # FORCE LE DÉPART À DROITE (même si la chaîne n'est pas parfaite)
+        zone_droite = [p for p in points_list if p[0] > debut_recherhce]
+        if zone_droite:
+            current_point = min(zone_droite, key=lambda p: p[0])
+            print(f"Début forcé dans zone 13/09 à : {current_point}")
+        else:
+            current_point = min(points_list, key=lambda p: p[0])
+            print("Début par défaut (bord gauche)")
 
     #centre_image = largeur_image // 2 
     #pixels du bord
@@ -137,8 +143,8 @@ def extraction_reconstruction_test1(chemin_img):
             pente = p[0]
         
         #predire prochain point avec inertie
-        cible_x = x_curr + 3
-        cible_y = y_curr + (pente*3)
+        #cible_x = x_curr + 3
+        #cible_y = y_curr + (pente*3)
 
         #logique j+1
         next_pt = None
@@ -154,27 +160,54 @@ def extraction_reconstruction_test1(chemin_img):
                 print(f"passage au jour {jour_actuel+1}")
             
         if next_pt is None :
-            #chercher les points existants autour du point souhaité
-            dist, idx = tree.query([x_curr, y_curr], k=100) #les 100 plus proches
-            candidats = [points_list[i] for i in idx if points_list[i] in points_set]
+            for rayon in [30, 70, 150, 300]:
+                #chercher les points existants autour du point souhaité
+                dist, idx = tree.query([x_curr, y_curr], k=rayon) #les 100 plus proches
+                candidats = [points_list[i] for i in idx if points_list[i] in points_set]
 
-            candidats_valides = [p for p in candidats if p[0] > x_curr + 2]
-            if candidats_valides:
-                def score_trajectoire(p):
-                    #calculer l'écart vertical avec la pente prédite
+                for avance_min in [2, 1, 0]:
+                    candidats_valides = [p for p in candidats if p[0] >= x_curr + avance_min]
+                    if candidats_valides:
+                        def score_trajectoire(pt_test):
+                            #calculer l'écart vertical avec la pente prédite
                     
-                    d = ((p[0]-x_curr)**2 + (p[1]-y_curr)**2)**0.5
+                            d = ((pt_test[0]-x_curr)**2 + (pt_test[1]-y_curr)**2)**0.5
 
-                    diff_pente = abs(p[1] - (y_curr + pente))
-                    #on veut un point proche ET dans la bonne direction
-                    #on donne bcp de poids à la direction (x10)
-                    return d + (diff_pente * 60)
+                            diff_pente = abs(pt_test[1] - (y_curr + pente))
+                            #on veut un point proche ET dans la bonne direction
+                            #on donne bcp de poids à la direction (x10)
+                            return d + (diff_pente * 100)
                 
-                next_pt = min(candidats_valides, key=score_trajectoire)
+                        next_pt = min(candidats_valides, key=score_trajectoire)
+                        break
+                if next_pt:
+                    break
+
+            #logique de survie (si bloqué au milieu de la feuille)
+            # Si on n'a rien trouvé mais qu'on n'est pas encore au bord droit
+            if next_pt is None and x_curr < largeur_image - 100:
+                print(f"Trou détecté à X={x_curr}. Tentative de saut de secours...")
+                # On cherche beaucoup plus loin (400px) à la hauteur estimée
+                dist, idx = tree.query([x_curr + 400, y_curr + (pente * 400)], k=100)
+                candidats_secours = [points_list[i] for i in idx if points_list[i] in points_set]
+                if candidats_secours:
+                    # On prend le plus proche de la prédiction de hauteur
+                    next_pt = min(candidats_secours, key=lambda p: abs(p[1] - (y_curr + (pente * 400))))
+                    print(f"Saut réussi ! Reprise à X={next_pt[0]}")
 
         if next_pt:
+            #if next_pt not in points_set:
+                #print("cycle terminé, retour au point de départ du jour 1")
+                #break
             current_point = next_pt
+            #test pour stopper la lecture de la courbe au bon endroit
+            heure_actuelle = (current_point[0] / largeur_image) * 24
+            if jour_actuel >=6 and heure_actuelle >= 17.15:
+                print("fin du marégramme")
+                break
         else:
+            print(f"arret à {x_curr} {y_curr}, points restant dans le set : {len(points_set)}")
+            print(f"DEBUG : Aucun point trouvé dans un rayon de 300px autour de {x_curr},{y_curr}")
             break
 
     #x=np.array(x_reconstruit)
@@ -182,7 +215,7 @@ def extraction_reconstruction_test1(chemin_img):
 
     #y_smooth = medfilt(y, kernel_size=11)
     
-    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=15)
+    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101)
 
 chemin = "image/HPSC0869.tif"
 
