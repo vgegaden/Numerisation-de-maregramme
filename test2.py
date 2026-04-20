@@ -25,12 +25,17 @@ def extraction_reconstruction_test1(chemin_img):
 
     cv2.imwrite("debug_1_extraction_brute.png", masque_bleu)
 
-    kernel_gros = np.ones((5, 5), np.uint8)
-    kernel_fin = np.ones((3, 3), np.uint8)
+    kernel5 = np.ones((5, 5), np.uint8)
+    kernel3 = np.ones((3, 3), np.uint8)
 
-    masque_propre= cv2.dilate(masque_bleu, kernel_gros, iterations = 1)
-    masque_propre = cv2.morphologyEx(masque_propre, cv2.MORPH_CLOSE, kernel_fin)
+    masque_gras= cv2.dilate(masque_bleu, kernel5, iterations = 1)
+    masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
+    #masque_propre = cv2.morphologyEx(masque_propre, cv2.MORPH_OPEN, kernel3)
     masque_propre = cv2.medianBlur(masque_propre, 5)
+
+    #kernel_bouche_trou = np.ones((5, 5), np.uint8)
+    #masque_lisse = cv2.morphologyEx(masque_propre, cv2.MORPH_CLOSE, kernel_bouche_trou)
+
 
     cv2.imwrite("debug_2_extraction_propre.png", masque_propre)
 
@@ -64,16 +69,41 @@ def extraction_reconstruction_test1(chemin_img):
     #logique recherche courbe jour 1
     seuil_iso = 15 #distance recherche voisin
     candidats_depart = []
-    for p in points_list : 
-        if p[0] > 30: #30px pour ne pas commencer au bord
+    longueur_chaine_min = 20
+
+    debut_recherhce = int(largeur_image*0.6)
+
+    for i in range (0, len(points_list),5) :
+        p = points_list[i] 
+        if p[0] > debut_recherhce: #50px pour ne pas commencer au bord
             #chercher si il y a des voisins dans un rayon de 30 px à gauche
             idx_gauche = tree.query_ball_point(p, 30)
             voisins_gauche = [points_list[i] for i in idx_gauche if points_list[i][0] < p[0] - 2]
             #verifier qu'il y a bien une suite à droite (pour s'assurer que c'est une courbe)
             idx_droite = tree.query_ball_point(p, 30)
             voisins_droite = [points_list[i] for i in idx_droite if points_list[i][0] > p[0] + 2]
-            if len(voisins_gauche) == 0 and len(voisins_droite) > 10:
-                candidats_depart.append(p)
+            if len(voisins_gauche) == 0:
+                p_suivi = p
+                points_suivis = set()
+                est_une_chaine = True
+
+                for _ in range(longueur_chaine_min):
+                    #cherche le point le plus proche à droite
+                    dist, idx = tree.query([p_suivi[0] + 3, p_suivi[1]], k=5)
+                    #on filtre pour ne prendre que les points à droite
+                    candidats_suivi = [points_list[j] for j in idx if points_list[j][0] > p_suivi[0]]
+
+                    if candidats_suivi:
+                        p_suivi = min(candidats_suivi, key=lambda pt: ((pt[0]-p_suivi[0])**2 + (pt[1]-p_suivi[1])**2))
+                        points_suivis.add(p_suivi)
+                    else:
+                        est_une_chaine = False
+                        break #la chaîne casse trop tôt, c'est un débris
+
+                if est_une_chaine:
+                    candidats_depart.append(p)
+
+        
 
     if candidats_depart:
         current_point = min(candidats_depart, key =lambda p: p[0])
@@ -101,9 +131,9 @@ def extraction_reconstruction_test1(chemin_img):
 
         #logique régression
         pente = 0
-        #calculer la pente sur les 20 derniers points
-        if len(x_final) > 20:
-            p = np.polyfit(x_final[-20:], y_final[-20:], 1)
+        #calculer la pente sur les 60 derniers points
+        if len(x_final) > 60:
+            p = np.polyfit(x_final[-60:], y_final[-60:], 1)
             pente = p[0]
         
         #predire prochain point avec inertie
@@ -114,9 +144,9 @@ def extraction_reconstruction_test1(chemin_img):
         next_pt = None
         seuil_isolement = 10
         #si proche du bord droit
-        if x_curr > largeur_image - 20:
+        if x_curr > largeur_image - 40:
             #on cherche au bord gauche (x=5) à la même hauteur
-            dist, idx = tree.query([5, y_curr], k=10) #regarder les 10 plus proches
+            dist, idx = tree.query([10, y_curr], k=50) #regarder les 50 plus proches
             candidats = [points_list[i] for i in idx if points_list[i] in points_set]
             if candidats:
                 next_pt = min(candidats, key=lambda p: abs(p[1] - y_curr))
@@ -124,11 +154,23 @@ def extraction_reconstruction_test1(chemin_img):
                 print(f"passage au jour {jour_actuel+1}")
             
         if next_pt is None :
-            #chercher dans un petit rayon autour de la prédiction
-            dist, idx = tree.query([x_curr + 2, y_curr + pente], k=15)
-            candidats_suivi = [points_list[i] for i in idx if points_list[i] in points_set and points_list[i][0] > x_curr]
-            if candidats_suivi:
-                next_pt = min(candidats_suivi, key=lambda p: abs(p[1] - (y_curr + pente)))
+            #chercher les points existants autour du point souhaité
+            dist, idx = tree.query([x_curr, y_curr], k=100) #les 100 plus proches
+            candidats = [points_list[i] for i in idx if points_list[i] in points_set]
+
+            candidats_valides = [p for p in candidats if p[0] > x_curr + 2]
+            if candidats_valides:
+                def score_trajectoire(p):
+                    #calculer l'écart vertical avec la pente prédite
+                    
+                    d = ((p[0]-x_curr)**2 + (p[1]-y_curr)**2)**0.5
+
+                    diff_pente = abs(p[1] - (y_curr + pente))
+                    #on veut un point proche ET dans la bonne direction
+                    #on donne bcp de poids à la direction (x10)
+                    return d + (diff_pente * 60)
+                
+                next_pt = min(candidats_valides, key=score_trajectoire)
 
         if next_pt:
             current_point = next_pt
@@ -151,7 +193,7 @@ try:
     #plt.scatter(x_val, y_raw, s=1, color='gray', alpha=0.5, label='Points bruts (Pixels)')
     plt.plot(x_val, y_final, color='blue', label='Signal lissé (Combo 2)')
     plt.title("Numérisation via Combo 2 (OpenCV + Filtrage + KDTree + suivi de pente)")
-    plt.gca().invert_yaxis() 
+    #plt.gca().invert_yaxis() 
     plt.savefig("resultat_numerisation.png")
     print("resultat enregistré")
 
