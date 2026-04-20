@@ -27,11 +27,12 @@ def extraction_reconstruction_test1(chemin_img):
 
     kernel5 = np.ones((5, 5), np.uint8)
     kernel3 = np.ones((3, 3), np.uint8)
+    kernel7 = np.ones((7, 7), np.uint8)
 
-    masque_gras= cv2.dilate(masque_bleu, kernel5, iterations = 1)
-    masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
+    masque_gras= cv2.dilate(masque_bleu, kernel7, iterations = 1)
+    masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel7)
     #masque_propre = cv2.morphologyEx(masque_propre, cv2.MORPH_OPEN, kernel3)
-    masque_propre = cv2.medianBlur(masque_propre, 5)
+    masque_propre = cv2.medianBlur(masque_propre, 7)
 
     #kernel_bouche_trou = np.ones((5, 5), np.uint8)
     #masque_lisse = cv2.morphologyEx(masque_propre, cv2.MORPH_CLOSE, kernel_bouche_trou)
@@ -215,7 +216,7 @@ def extraction_reconstruction_test1(chemin_img):
 
     #y_smooth = medfilt(y, kernel_size=11)
     
-    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101)
+    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=151)
 
 chemin = "image/HPSC0869.tif"
 
@@ -226,7 +227,7 @@ try:
     #plt.scatter(x_val, y_raw, s=1, color='gray', alpha=0.5, label='Points bruts (Pixels)')
     plt.plot(x_val, y_final, color='blue', label='Signal lissé (Combo 2)')
     plt.title("Numérisation via Combo 2 (OpenCV + Filtrage + KDTree + suivi de pente)")
-    #plt.gca().invert_yaxis() 
+    plt.gca().invert_yaxis() 
     plt.savefig("resultat_numerisation.png")
     print("resultat enregistré")
 
