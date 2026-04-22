@@ -68,41 +68,41 @@ def extraction_reconstruction_test1(chemin_img):
     largeur_image = img.shape[1]
 
     #logique recherche courbe jour 1
-    seuil_iso = 15 #distance recherche voisin
+    seuil_iso = 100 #distance recherche voisin
     candidats_depart = []
-    longueur_chaine_min = 25
+    longueur_chaine_min = 125
 
-    debut_recherhce = int(largeur_image*0.6)
+    #debut_recherhce = int(largeur_image*0.6)
 
     for i in range (0, len(points_list),5) :
         p = points_list[i] 
-        if p[0] > debut_recherhce: #50px pour ne pas commencer au bord
+        #if p[0] > debut_recherhce: #50px pour ne pas commencer au bord
             #chercher si il y a des voisins dans un rayon de 30 px à gauche
-            idx_gauche = tree.query_ball_point(p, 30)
-            voisins_gauche = [points_list[i] for i in idx_gauche if points_list[i][0] < p[0] - 2]
+        idx_gauche = tree.query_ball_point(p, seuil_iso)
+        voisins_gauche = [points_list[i] for i in idx_gauche if points_list[i][0] < p[0] - 5]
             #verifier qu'il y a bien une suite à droite (pour s'assurer que c'est une courbe)
             #idx_droite = tree.query_ball_point(p, 30)
             #voisins_droite = [points_list[i] for i in idx_droite if points_list[i][0] > p[0] + 2]
-            if len(voisins_gauche) == 0:
-                p_suivi = p
-                points_suivis = set()
-                est_une_chaine = True
+        if len(voisins_gauche) == 0:
+            p_suivi = p
+            points_suivis = set()
+            est_une_chaine = True
 
-                for _ in range(longueur_chaine_min):
-                    #cherche le point le plus proche à droite
-                    dist, idx = tree.query([p_suivi[0] + 3, p_suivi[1]], k=5)
-                    #on filtre pour ne prendre que les points à droite
-                    candidats_suivi = [points_list[j] for j in idx if points_list[j][0] > p_suivi[0]]
+            for _ in range(longueur_chaine_min):
+                #cherche le point le plus proche à droite
+                dist, idx = tree.query([p_suivi[0] + 10, p_suivi[1]], k=5)
+                #on filtre pour ne prendre que les points à droite
+                candidats_suivi = [points_list[j] for j in idx if points_list[j][0] > p_suivi[0]]
 
-                    if candidats_suivi:
-                        p_suivi = min(candidats_suivi, key=lambda pt: ((pt[0]-p_suivi[0])**2 + (pt[1]-p_suivi[1])**2))
-                        #points_suivis.add(p_suivi)
-                    else:
-                        est_une_chaine = False
-                        break #la chaîne casse trop tôt, c'est un débris
+                if candidats_suivi:
+                    p_suivi = candidats_suivi[0]
+                    #points_suivis.add(p_suivi)
+                else:
+                    est_une_chaine = False
+                    break #la chaîne casse trop tôt, c'est un débris
 
-                if est_une_chaine:
-                    candidats_depart.append(p)
+            if est_une_chaine:
+                candidats_depart.append(p)
 
         
 
@@ -111,14 +111,9 @@ def extraction_reconstruction_test1(chemin_img):
         print(f"Début automatique détecté à : {current_point}")
 
     else :
-        # FORCE LE DÉPART À DROITE (même si la chaîne n'est pas parfaite)
-        zone_droite = [p for p in points_list if p[0] > debut_recherhce]
-        if zone_droite:
-            current_point = min(zone_droite, key=lambda p: p[0])
-            print(f"Début forcé dans zone 13/09 à : {current_point}")
-        else:
-            current_point = min(points_list, key=lambda p: p[0])
-            print("Début par défaut (bord gauche)")
+        #depart par defaut à gauche
+        current_point = min(points_list, key=lambda p : p[0])
+        print("Départ par défaut au bord gauche)")
 
     #centre_image = largeur_image // 2 
     #pixels du bord
@@ -187,14 +182,14 @@ def extraction_reconstruction_test1(chemin_img):
             #logique de survie (si bloqué au milieu de la feuille)
             # Si on n'a rien trouvé mais qu'on n'est pas encore au bord droit
             if next_pt is None and x_curr < largeur_image - 100:
-                print(f"Trou détecté à X={x_curr}. Tentative de saut de secours...")
+                print(f"Trou détecté à X={x_curr}. Tentative de saut de secours")
                 # On cherche beaucoup plus loin (400px) à la hauteur estimée
                 dist, idx = tree.query([x_curr + 400, y_curr + (pente * 400)], k=100)
                 candidats_secours = [points_list[i] for i in idx if points_list[i] in points_set]
                 if candidats_secours:
                     # On prend le plus proche de la prédiction de hauteur
                     next_pt = min(candidats_secours, key=lambda p: abs(p[1] - (y_curr + (pente * 400))))
-                    print(f"Saut réussi ! Reprise à X={next_pt[0]}")
+                    print(f"Saut réussi. Reprise à x={next_pt[0]}")
 
         if next_pt:
             #if next_pt not in points_set:
@@ -216,7 +211,7 @@ def extraction_reconstruction_test1(chemin_img):
 
     #y_smooth = medfilt(y, kernel_size=11)
     
-    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=151)
+    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101)
 
 chemin = "image/HPSC0869.tif"
 
