@@ -32,7 +32,12 @@ def extraction_reconstruction_test1(chemin_img):
 
     masque_gras= cv2.dilate(masque_bleu, kernel7, iterations = 1)
     masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel7)
+    #masque_propre = cv2.morphologyEx(masque_propre, cv2.MORPH_OPEN, kernel3)
     masque_propre = cv2.medianBlur(masque_propre, 7)
+
+    #kernel_bouche_trou = np.ones((5, 5), np.uint8)
+    #masque_lisse = cv2.morphologyEx(masque_propre, cv2.MORPH_CLOSE, kernel_bouche_trou)
+
 
     cv2.imwrite("image_apres_extraction/debug_2_extraction_propre.png", masque_propre)
 
@@ -68,12 +73,17 @@ def extraction_reconstruction_test1(chemin_img):
     candidats_depart = []
     longueur_chaine_min = 125
 
+    #debut_recherhce = int(largeur_image*0.6)
 
     for i in range (0, len(points_list), 10) :
         p = points_list[i] 
+        #if p[0] > debut_recherhce: #50px pour ne pas commencer au bord
             #chercher si il y a des voisins dans un rayon de 30 px à gauche
         idx_gauche = tree.query_ball_point(p, seuil_iso)
         voisins_gauche = [points_list[i] for i in idx_gauche if points_list[i][0] < p[0] - 5]
+            #verifier qu'il y a bien une suite à droite (pour s'assurer que c'est une courbe)
+            #idx_droite = tree.query_ball_point(p, 30)
+            #voisins_droite = [points_list[i] for i in idx_droite if points_list[i][0] > p[0] + 2]
         if len(voisins_gauche) == 0:
             p_suivi = p
             points_suivis = set()
@@ -111,6 +121,11 @@ def extraction_reconstruction_test1(chemin_img):
         current_point = min(points_list, key=lambda p : p[0])
         print("Départ par défaut au bord gauche)")
 
+    #centre_image = largeur_image // 2 
+    #pixels du bord
+    #seuil_bord = 15
+    #nb de points pour la pente_lineaire
+    #nb_points_reg = 15
     #cpt de sauts j+1
     jour_actuel = 0
     x_final, y_final = [], []
@@ -118,23 +133,26 @@ def extraction_reconstruction_test1(chemin_img):
     points_restants = set(points_list)
     iterations = 0
     max_iterations = 50000
+    visualisation_pentes = []
 
     while True:
         x_curr, y_curr = current_point 
         x_final.append(x_curr + (jour_actuel * largeur_image))
         y_final.append(y_curr)
 
+        
         if current_point in points_set:
             points_set.remove(current_point)
-        
 
         #logique régression
         pente_lineaire = 0
-        poly_courbe = None        
+        poly_courbe = None
+        
 
-        if len(x_final) > 10:
-            if len(set(x_final[-10:])) >2:
-                p_lin = np.polyfit(x_final[-10:], y_final[-10:], 1)
+        #nb = min(len(x_final), 40)
+        if len(x_final) > 30:
+            if len(set(x_final[-40:])) >2:
+                p_lin = np.polyfit(x_final[-40:], y_final[-40:], 1)
                 pente_lineaire = p_lin[0]
             if len(set(x_final[-200:])) > 10:
                 x_recent = np.array(x_final[-200:])
@@ -142,6 +160,10 @@ def extraction_reconstruction_test1(chemin_img):
                 x_ref = x_recent[-1]   
                 poly_courbe = np.polyfit(x_recent - x_ref, y_recent, 2)
         
+        #predire prochain point avec inertie
+        #cible_x = x_curr + 3
+        #cible_y = y_curr + (pente_lineaire*3)
+
         #logique j+1
         next_pt = None
         seuil_isolement = 10
@@ -154,55 +176,26 @@ def extraction_reconstruction_test1(chemin_img):
                 next_pt = min(candidats, key=lambda p: abs(p[1] - y_curr))
                 jour_actuel += 1
                 print(f"passage au jour {jour_actuel+1}")
-
-        
-        if next_pt is None:
-            # On cherche juste devant
-            for rayon in [15, 30]:
-                idx = tree.query_ball_point([x_curr, y_curr], rayon) 
-                candidats = [points_list[i] for i in idx if points_list[i] in points_set and points_list[i][0] > x_curr]
-
-                bons_candidats_locaux = []
-                for pt in candidats:
-                    y_predit = y_curr + (pente_lineaire * (pt[0] - x_curr))
-                    diff = abs(pt[1] - y_predit)
-                    
-                    # LA CLÉ EST ICI : Le Droit de Refus !
-                    # Si le seul chemin disponible est un pont horizontal, diff sera grand.
-                    # On le REFUSE. Il ne fera pas partie des bons candidats.
-                    if diff <= 8: 
-                        bons_candidats_locaux.append(pt)
-
-                if bons_candidats_locaux:
-                    # On prend le plus proche qui respecte la règle
-                    next_pt = min(bons_candidats_locaux, key=lambda p: ((p[0]-x_curr)**2 + (p[1]-y_curr)**2)**0.5)
-                    break
-        
-        
-        
-        if next_pt is None and x_curr < largeur_image -100 :
-            pas_telescope = 35
-            y_predit_loin = y_curr + (pente_lineaire * pas_telescope)
-
-            idx_loin = tree.query_ball_point([x_curr + pas_telescope, y_predit_loin], 15)
-            candidats_loin = [points_list[i] for i in idx_loin if points_list[i] in points_set and points_list[i][0] > x_curr + 20]
-
-
-            
-            if candidats_loin:
-                def score_telescopique(p):
-                    y_theorique = y_curr +(pente_lineaire * (p[0] - x_curr))
-                    return abs(p[1] - y_theorique)
-                
-                next_pt = min(candidats_loin, key=score_telescopique)
             
         if next_pt is None :
             for rayon in [15, 30, 60]:
                 #chercher les points existants autour du point souhaité
                 idx = tree.query_ball_point([x_curr, y_curr], rayon) 
+
+                #for avance_min in [2, 1, 0]:
+                #if candidats:
+
                 candidats_valides = [points_list[i] for i in idx if points_list[i] in points_set and points_list[i][0] >= x_curr and points_list[i] != current_point]
                 
                 if candidats_valides:
+
+                    if len(candidats_valides) > 1:
+                        x_start = x_curr
+                        y_start = y_curr
+                        x_end = x_curr + 60
+                        y_end = y_curr + (pente_lineaire * 60)
+
+                        visualisation_pentes.append(([x_start, x_end], [y_start, y_end]))
                     def score_trajectoire(pt_test):
                         #calculer l'écart vertical avec la pente_lineaire prédite
                 
@@ -211,7 +204,7 @@ def extraction_reconstruction_test1(chemin_img):
                         y_predit = y_curr + (pente_lineaire * (pt_test[0] - x_curr))
                         diff_pente_lineaire = abs(pt_test[1] - y_predit)
                         #on veut un point proche ET dans la bonne direction
-                        #on donne bcp de poids à la direction, *50
+                        #on donne bcp de poids à la direction (x10)
                         return d + (diff_pente_lineaire * 50)
                 
                     next_pt = min(candidats_valides, key=score_trajectoire)
@@ -247,12 +240,12 @@ def extraction_reconstruction_test1(chemin_img):
                 x_curr = x_final[-1] - (jour_actuel * largeur_image)
                 y_curr = y_final[-1]
 
-                if len(set(x_final[-40:])) >2:
-                    p_lin = np.polyfit(x_final[-40:], y_final[-40:], 1)
+                if len(set(x_final[-10:])) >2:
+                    p_lin = np.polyfit(x_final[-10:], y_final[-10:], 1)
                     pente_lineaire = p_lin[0]
-                if len(set(x_final[-200:])) > 3:
-                    x_recent = np.array(x_final[-200:])
-                    y_recent = np.array(y_final[-200:])
+                if len(set(x_final[-40:])) > 3:
+                    x_recent = np.array(x_final[-40:])
+                    y_recent = np.array(y_final[-40:])
                     x_ref = x_recent[-1]
                     poly_courbe = np.polyfit(x_recent - x_ref, y_recent, 2)
                 
@@ -260,24 +253,27 @@ def extraction_reconstruction_test1(chemin_img):
                 
                 print(f"Recul effectué. Reprise à X={x_curr}")
 
-            def chercher_candidats(dist_saut, y_cible, rayon):
-                x_abs_cible = x_final[-1] + dist_saut
-                x_loc_cible = x_abs_cible % largeur_image
-                j_cible = int(x_abs_cible // largeur_image)
-            
-                idx = tree.query_ball_point([x_loc_cible, y_cible], rayon)
-                valides = []
-                for i in idx:
-                    p = points_list[i]
-                    if p in points_set:
-                        p_abs = p[0] + (j_cible * largeur_image)
-                        if p_abs > x_final[-1] + 10:
-                            valides.append((p, j_cible, p_abs))
-                return valides
+                def chercher_candidats(dist_saut, y_cible, rayon):
+                    x_abs_cible = x_final[-1] + dist_saut
+                    x_loc_cible = x_abs_cible % largeur_image
+                    j_cible = int(x_abs_cible // largeur_image)
+                
+                    idx = tree.query_ball_point([x_loc_cible, y_cible], rayon)
+                    valides = []
+                    for i in idx:
+                        p = points_list[i]
+                        if p in points_set:
+                            p_abs = p[0] + (j_cible * largeur_image)
+                            if p_abs > x_final[-1] + 10:
+                                valides.append((p, j_cible, p_abs))
+                    return valides
             
             for pas_x in range (3, 60, 5):
 
+                #cible_x = x_curr + pas_x
                 cible_y = y_curr + (pente_lineaire * pas_x)
+                #idx = tree.query_ball_point([cible_x, cible_y], 15)
+                #candidats_secours = [points_list[i] for i in idx if points_list[i] in points_set and points_list[i][0] > x_curr]
                 candidats = chercher_candidats(pas_x, cible_y, 20)
                 if candidats:
                     # On prend le plus proche de la prédiction de hauteur
@@ -290,11 +286,25 @@ def extraction_reconstruction_test1(chemin_img):
             if next_pt is None and poly_courbe is not None:
                 print("Le pont court a échoué. Tentative de grand saut parabolique.")
                 for dist_saut in [60, 150, 400, 600, 1000, 1500, 2000]:
+                    #cible_x = x_curr + dist_saut
+                    #cible_x_absolu = x_final[-1] + dist_saut
                     cible_y_pure = poly_courbe[0]*(dist_saut**2) + poly_courbe[1]*dist_saut + poly_courbe[2]
                     cible_y = np.clip(cible_y_pure, 200, 3100)
                     rayon_recherche = 80 if dist_saut <= 300 else 200
+                    #idx = tree.query_ball_point([cible_x, cible_y], 100) 
                     candidats = chercher_candidats(dist_saut, cible_y, rayon_recherche)
-                                        
+
+                    y_par = None
+                    if poly_courbe is not None:
+                        y_par = poly_courbe[0]*(dist_saut**2) + poly_courbe[1]*dist_saut + poly_courbe[2]
+                        y_par = np.clip(y_par, 200, 3100)
+                        rayon_par = 150 if dist_saut > 300 else 80
+                        # On ajoute les candidats de la parabole à notre liste de recherche
+                        candidats += chercher_candidats(dist_saut, y_par, rayon_par)
+                    
+                    # Dédoublonnage (si la ligne et la parabole pointent au même endroit)
+                    candidats_uniques = list({c[0]: c for c in candidats}.values())
+                    
                     candidats_solides = []
                     for c in candidats:
                         p_loc = c[0]
@@ -304,7 +314,10 @@ def extraction_reconstruction_test1(chemin_img):
                             candidats_solides.append(c)
 
                     if candidats_solides:
-                        best = min(candidats_solides, key=lambda c: abs(c[0][1] - cible_y))
+                        def score_atterissage(c):
+                            return abs(c[0][1] - cible_y)
+
+                        best = min(candidats_solides, key=score_atterissage)
                         next_pt = best[0]
                         jour_actuel=best[1]
                         print(f"Grand saut parabolique réussi à x={next_pt[0]}, jour {jour_actuel+1}")
@@ -313,6 +326,9 @@ def extraction_reconstruction_test1(chemin_img):
 
         #points_visites_total = set()
         if next_pt:
+            #if next_pt not in points_set:
+                #print("cycle terminé, retour au point de départ du jour 1")
+                #break
             current_point = next_pt
             #test pour stopper la lecture de la courbe au bon endroit
             heure_actuelle = (current_point[0] / largeur_image) * 24
@@ -330,21 +346,19 @@ def extraction_reconstruction_test1(chemin_img):
 
         if iterations >= max_iterations:
             print("nb max d'itérations atteintes")
-            break
 
     #x=np.array(x_reconstruit)
     #y=np.array(y_reconstruit)
 
     #y_smooth = medfilt(y, kernel_size=11)
     
-    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101)
+    return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101), visualisation_pentes, points_list
 
 chemin = "image/HPSC0869.tif"
 
 try:
-    x_val, y_raw, y_final = extraction_reconstruction_test1(chemin)
-
-    
+    x_val, y_raw, y_final, v_pentes, points_list = extraction_reconstruction_test1(chemin)
+    points_list_np = np.array(points_list)
 
 
     plt.figure(figsize=(12, 6))
@@ -389,6 +403,39 @@ try:
         plt.close()
         
         print(f"Graphique {nom_fichier} enregistré.")
+
+    plt.figure(figsize=(20, 10))
+
+    # --- ÉTAPE 1 : Le fond (Squelette gris) ---
+    # On affiche uniquement les points qui appartiennent au Jour 1 (0 < x < largeur_image)
+    masque_fond_j1 = points_list_np[:, 0] < largeur_image
+    plt.scatter(points_list_np[masque_fond_j1, 0], points_list_np[masque_fond_j1, 1], 
+            s=1, color='lightgray', alpha=0.4, label='Squelette Jour 1', zorder=1)
+
+    # --- ÉTAPE 2 : Les segments de pente (Rouge) ---
+    # On filtre la liste v_pentes pour ne garder que le Jour 1
+    v_pentes_j1 = [p for p in v_pentes if p[0][0] < largeur_image]
+
+    for i, (seg_x, seg_y) in enumerate(v_pentes_j1):
+        label = "Pente de décision" if i == 0 else ""
+        # On trace le segment rouge très finement
+        plt.plot(seg_x, seg_y, color='red', linewidth=1.2, alpha=0.9, zorder=3, label=label)
+    
+        # On ajoute un petit point vert au départ du segment (l'endroit du choix)
+        plt.scatter(seg_x[0], seg_y[0], color='green', s=5, zorder=4)
+
+    # --- ÉTAPE 3 : Habillage ---
+    plt.title("Analyse des Croisements - Jour 1 : Squelette vs Pente Prédictive")
+    plt.xlabel("Pixels X")
+    plt.ylabel("Pixels Y (Profondeur)")
+    plt.gca().invert_yaxis() # Inversion pour avoir le haut en haut
+    plt.legend()
+
+    # Sauvegarde en haute qualité pour pouvoir zoomer sur les croisements
+    plt.savefig("diagnostic_croisements_J1.png", dpi=300, bbox_inches='tight')
+    plt.close()
+
+    print(f"Graphique enregistré : diagnostic_croisements_J1.png ({len(v_pentes_j1)} intersections analysées)")
 
 except Exception as e:
     print(f"Erreur : {e}.")
