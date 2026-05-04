@@ -29,6 +29,7 @@ def extraction_reconstruction_test1(chemin_img):
     kernel5 = np.ones((5, 5), np.uint8)
     kernel3 = np.ones((3, 3), np.uint8)
     kernel7 = np.ones((7, 7), np.uint8)
+    kernel4 = np.ones((4, 4), np.uint8)
 
     masque_gras= cv2.dilate(masque_bleu, kernel5, iterations = 1)
     masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
@@ -190,12 +191,12 @@ def extraction_reconstruction_test1(chemin_img):
                 if candidats_valides:
 
                     if len(candidats_valides) > 1:
-                        x_start = x_curr
+                        x_abs_start = x_curr + (jour_actuel * largeur_image)
                         y_start = y_curr
-                        x_end = x_curr + 60
+                        x_abs_end = x_curr + 60
                         y_end = y_curr + (pente_lineaire * 60)
 
-                        visualisation_pentes.append(([x_start, x_end], [y_start, y_end]))
+                        visualisation_pentes.append(([x_abs_start, x_abs_end], [y_start, y_end]))
                     def score_trajectoire(pt_test):
                         #calculer l'écart vertical avec la pente_lineaire prédite
                 
@@ -205,7 +206,7 @@ def extraction_reconstruction_test1(chemin_img):
                         diff_pente_lineaire = abs(pt_test[1] - y_predit)
                         #on veut un point proche ET dans la bonne direction
                         #on donne bcp de poids à la direction (x10)
-                        return d + (diff_pente_lineaire * 50)
+                        return d + (diff_pente_lineaire * 10)
                 
                     next_pt = min(candidats_valides, key=score_trajectoire)
                     break
@@ -388,9 +389,27 @@ try:
         y_jour_brut = y_raw[masque_jour]
 
         plt.figure(figsize=(12, 6))
-        plt.scatter(x_val % largeur_image, y_raw, s=1, color='gray', alpha=0.05, label='Faisceau brut')
-        plt.plot(x_jour_local, y_jour_brut, color='blue', linewidth=2, label=f'Reconstruction Jour {j+1}')
         
+        plt.plot(x_jour_local, y_jour_brut, color='blue', linewidth=2, label=f'Reconstruction Jour {j+1}', zorder=5)
+        plt.scatter(points_list_np[:, 0], points_list_np[:, 1], s=1, color='lightgray', alpha=0.1, label='Squelette total')
+
+        first_pente = True
+        for (seg_x_abs, seg_y) in v_pentes:
+            # On utilise le premier point du segment pour déterminer le jour
+            x_debut_abs = seg_x_abs[0]
+            jour_du_segment = int(x_debut_abs // largeur_image)
+            
+            if jour_du_segment == j:
+                # Conversion des X absolus en locaux pour le graphique (0 à largeur_image)
+                x_local = [x % largeur_image for x in seg_x_abs]
+                
+                lbl = "Pentes de décision" if first_pente else ""
+                plt.plot(x_local, seg_y, color='red', linewidth=1.5, alpha=0.8, zorder=10, label=lbl)
+                
+                # Petit point vert au départ de la décision
+                plt.scatter(x_local[0], seg_y[0], color='green', s=10, zorder=11)
+                first_pente = False
+
         plt.title(f"Marégramme - Jour {j+1}")
         plt.xlabel("Pixels (Temps)")
         plt.ylabel("Pixels (Hauteur)")
