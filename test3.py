@@ -30,10 +30,10 @@ def extraction_reconstruction_test1(chemin_img):
     kernel3 = np.ones((3, 3), np.uint8)
     kernel7 = np.ones((7, 7), np.uint8)
 
-    masque_gras= cv2.dilate(masque_bleu, kernel7, iterations = 1)
-    masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel7)
+    masque_gras= cv2.dilate(masque_bleu, kernel5, iterations = 1)
+    masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
     #masque_propre = cv2.morphologyEx(masque_propre, cv2.MORPH_OPEN, kernel3)
-    masque_propre = cv2.medianBlur(masque_propre, 7)
+    masque_propre = cv2.medianBlur(masque_propre, 5)
 
     #kernel_bouche_trou = np.ones((5, 5), np.uint8)
     #masque_lisse = cv2.morphologyEx(masque_propre, cv2.MORPH_CLOSE, kernel_bouche_trou)
@@ -403,9 +403,9 @@ try:
         plt.close()
         
         print(f"Graphique {nom_fichier} enregistré.")
-
+    '''
     plt.figure(figsize=(20, 10))
-
+    
     # --- ÉTAPE 1 : Le fond (Squelette gris) ---
     # On affiche uniquement les points qui appartiennent au Jour 1 (0 < x < largeur_image)
     masque_fond_j1 = points_list_np[:, 0] < largeur_image
@@ -436,7 +436,7 @@ try:
     plt.close()
 
     print(f"Graphique enregistré : diagnostic_croisements_J1.png ({len(v_pentes_j1)} intersections analysées)")
-
+    '''
 except Exception as e:
     print(f"Erreur : {e}.")
     traceback.print_exc()
