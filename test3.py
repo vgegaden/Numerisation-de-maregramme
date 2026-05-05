@@ -14,6 +14,8 @@ from scipy.signal import medfilt
 from scipy.spatial import KDTree #pour améliorer la vitesse
 import traceback
 
+
+
 def extraction_reconstruction_test1(chemin_img):
     img = cv2.imread(chemin_img)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
@@ -199,11 +201,11 @@ def extraction_reconstruction_test1(chemin_img):
                         visualisation_pentes.append(([x_abs_start, x_abs_end], [y_start, y_end]))
                     def score_trajectoire(pt_test):
                         #calculer l'écart vertical avec la pente_lineaire prédite
-                
+                        dx = max(0.1, abs(pt_test[0] - x_curr))
                         d = ((pt_test[0]-x_curr)**2 + (pt_test[1]-y_curr)**2)**0.5
                         
                         y_predit = y_curr + (pente_lineaire * (pt_test[0] - x_curr))
-                        diff_pente_lineaire = abs(pt_test[1] - y_predit)
+                        diff_pente_lineaire = abs(pt_test[1] - y_predit) / dx
                         #on veut un point proche ET dans la bonne direction
                         #on donne bcp de poids à la direction (x10)
                         return d + (diff_pente_lineaire * 10)
