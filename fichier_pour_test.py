@@ -66,19 +66,32 @@ def redresser_et_rogner_grille(img_hd):
                                    flags=cv2.INTER_LINEAR, 
                                    borderMode=cv2.BORDER_REPLICATE)
 
+    #test
+    hsv_final = cv2.cvtColor(img_redressee, cv2.COLOR_BGR2HSV)
+    bas_rouge1 = np.array([0, 50, 50])
+    haut_rouge1 = np.array([10, 255, 255])
+    bas_rouge2 = np.array([170, 50, 50])
+    haut_rouge2 = np.array([180, 255, 255])
+    masque_rouge1 = cv2.inRange(hsv_final, bas_rouge1, haut_rouge1)
+    masque_rouge2 = cv2.inRange(hsv_final, bas_rouge2, haut_rouge2)
+    masque_rouge = cv2.add(masque_rouge1, masque_rouge2)
+    masque_rouge = cv2.morphologyEx(masque_rouge, cv2.MORPH_CLOSE, kernel5)
+    contours_rouges, _ = cv2.findContours(masque_rouge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    
+    
     #rogner grille sur image finale
     gris_final = cv2.cvtColor(img_redressee, cv2.COLOR_BGR2GRAY)
     _, seuil_final = cv2.threshold(gris_final, 50, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
     contours_final, _ = cv2.findContours(seuil_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     
-    if contours_final:
-        cadre_final = max(contours_final, key = cv2.contourArea)
-        x, y, w_g, h_g = cv2.boundingRect(cadre_final)
+    if contours_rouges:
+        cadre_rouge = max(contours_rouges, key = cv2.contourArea)
+        x, y, w_g, h_g = cv2.boundingRect(cadre_rouge)
         marge_interieur = int(h * 0.04)
         #slicing final
         #on prend le point de depart auquel on ajoute la hauteur et la largeur
         #pour aller jusqu'au bout de la grille et conserver la bonne resolution
-        img_finale = img_redressee[y + marge_interieur:y+h_g - marge_interieur, x:x+w_g]
+        img_finale = img_redressee[y:y+h_g, x:x+w_g]
         print(f"Grille isolée : {w_g}x{h_g} pixels")
         print(f"Grille avec crop brut : {img_finale.shape[1]}x{img_finale.shape[0]}")
         return img_finale
@@ -86,7 +99,7 @@ def redresser_et_rogner_grille(img_hd):
     return img_redressee
 
 
-chemin_image = "image/HPSC0869.tif" 
+chemin_image = "image/HPSC0178.tif" 
 image_source = cv2.imread(chemin_image)
 image_resultat = redresser_et_rogner_grille(image_source)
 cv2.imwrite("test_grille_isolee.png", image_resultat)
