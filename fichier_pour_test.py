@@ -99,10 +99,10 @@ def redresser_et_rogner_grille(img_hd):
     return img_redressee
 
 
-chemin_image = "image/HPSC0178.tif" 
+chemin_image = "image/HPSC0869.tif" 
 image_source = cv2.imread(chemin_image)
 image_resultat = redresser_et_rogner_grille(image_source)
-cv2.imwrite("test_grille_isolee.png", image_resultat)
+cv2.imwrite("image_pour_rapport/test_grille_isolee.png", image_resultat)
 print("reulstat crop grille sauvegardé")
 
 '''
