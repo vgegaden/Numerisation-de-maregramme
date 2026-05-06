@@ -1,12 +1,3 @@
-#test méthode avec segmentation couleur (extraction)
-#avec squelettisation (extraction)
-#detection de contours (reconstruction)
-#ajout logique j+1
-#ajout régression linéaire
-#ajout logique pour trouver la courbe du jour 1
-#ajout kdtree 
-
-
 import cv2
 import numpy as np
 import matplotlib.pyplot as plt
@@ -34,19 +25,7 @@ def redresser_et_rogner_grille(img_hd):
     if not contours:
         print("pas de contours détecté")
         return img_hd
-    '''
-    contours = sorted(contours,key=cv2.contourArea, reverse = True)[:5]#5 plus grands
-    cadre = None
-    for c in contours:
-        peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
-        if len(approx)==4:
-            cadre = c
-            break
-
-    if cadre is None:
-        cadre = contours [0]
-    '''
+    
     cadre = max(contours, key=cv2.contourArea)
     #calculer angle pour remettre dans le bon angle
     rect = cv2.minAreaRect(cadre)
@@ -99,40 +78,8 @@ def redresser_et_rogner_grille(img_hd):
     return img_redressee
 
 
-chemin_image = "image/HPSC0869.tif" 
+chemin_image = "image/HPSC0178.tif" 
 image_source = cv2.imread(chemin_image)
 image_resultat = redresser_et_rogner_grille(image_source)
 cv2.imwrite("test_grille_isolee.png", image_resultat)
 print("reulstat crop grille sauvegardé")
-
-'''
-if image_source is None:
-    print(f"Erreur : Impossible de charger l'image à {chemin_image}")
-else:
-    # 1. Exécution de la fonction
-    try:
-        image_resultat = redresser_et_rogner_grille(image_source)
-
-        # 2. Visualisation avec Matplotlib
-        plt.figure(figsize=(20, 10))
-
-        # Image Originale
-        plt.subplot(1, 2, 1)
-        plt.imshow(cv2.cvtColor(image_source, cv2.COLOR_BGR2RGB))
-        plt.title(f"Originale\n{image_source.shape[1]}x{image_source.shape[0]}")
-        plt.axis('off')
-
-        # Image Redressée et Rognée
-        plt.subplot(1, 2, 2)
-        plt.imshow(cv2.cvtColor(image_resultat, cv2.COLOR_BGR2RGB))
-        plt.title(f"Résultat (Redressé & Rogné)\n{image_resultat.shape[1]}x{image_resultat.shape[0]}")
-        plt.axis('off')
-
-        plt.tight_layout()
-        # 3. Sauvegarde pour inspecter les détails (HD)
-        cv2.imwrite("test_grille_isolee.png", image_resultat)
-        print("Le résultat a été sauvegardé sous 'test_grille_isolee.png'")
-
-    except Exception as e:
-        print(f"Une erreur est survenue durant le test : {e}")
-'''
