@@ -74,12 +74,13 @@ def redresser_et_rogner_grille(img_hd):
     if contours_final:
         cadre_final = max(contours_final, key = cv2.contourArea)
         x, y, w_g, h_g = cv2.boundingRect(cadre_final)
-        #marge_interieur_hauteur = int(h * 0.04)
+        marge_interieur = int(h * 0.04)
         #slicing final
         #on prend le point de depart auquel on ajoute la hauteur et la largeur
         #pour aller jusqu'au bout de la grille et conserver la bonne resolution
-        img_finale = img_redressee[y:y+h_g, x:x+w_g]
+        img_finale = img_redressee[y + marge_interieur:y+h_g - marge_interieur, x:x+w_g]
         print(f"Grille isolée : {w_g}x{h_g} pixels")
+        print(f"Grille avec crop brut : {img_finale.shape[1]}x{img_finale.shape[0]}")
         return img_finale
 
     return img_redressee
