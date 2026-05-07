@@ -91,12 +91,46 @@ def extraction_reconstruction_test1(chemin_img):
     img = redresser_et_rogner_grille(img_hd)
     cv2.imwrite("test_grille_isolee.png", img)
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
+    h_channel = hsv[:, :, 0]
+    s_channel = hsv[:, :, 1]
+    v_channel = hsv[:, :, 2]
+    v_blur = cv2.GaussianBlur(v_channel, (5, 5), 0)
+    ret, masque_adaptatif = cv2.threshold(v_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
+    masque_pour_histo = cv2.bitwise_and(masque_adaptatif, cv2.threshold(s_channel, 30, 255, cv2.THRESH_BINARY)[1])
 
+    # On calcule l'histogramme des teintes (0 à 179)
+    hist_h = cv2.calcHist([h_channel], [0], masque_pour_histo, [180], [0, 180])
+
+    # 3. On trouve la teinte dominante (le pic de l'histogramme)
+    # On ignore les teintes très proches de 0 ou 180 (souvent du bruit rouge/orange de la grille)
+    hist_h[0:10] = 0
+    hist_h[170:180] = 0
+    teinte_dominante = np.argmax(hist_h)
+
+    print(f"Teinte dominante de l'encre détectée : {teinte_dominante}")
+
+    # 4. On crée un masque de tolérance autour de cette teinte dominante (+/- 15)
+    # C'est la "petite marge" que tu demandais.
+    ecart = 15
+    basse_h = max(0, teinte_dominante - ecart)
+    haute_h = min(179, teinte_dominante + ecart)
+    basse_h_np = np.array([basse_h], dtype="uint8")
+    haute_h_np = np.array([haute_h], dtype="uint8")
+
+    # On crée un masque qui ne garde que cette plage de teinte
+    masque_teinte = cv2.inRange(h_channel, basse_h_np, haute_h_np)
+
+    # 5. COMBINAISON FINALE
+    # On ne garde que les pixels qui sont SOMBRES (Otsu) ET de la BONNE COULEUR
+    masque_bleu_propre = cv2.bitwise_and(masque_adaptatif, masque_teinte)
+
+    # On remplace l'ancien masque pour la suite de ton nettoyage morphologique
+    masque_bleu = masque_bleu_propre
 
     #partie segmentation couleurs
-    bleu_clair = np.array([0, 0, 0])
-    bleu_fonce = np.array([179, 255, 100])
-    masque_bleu = cv2.inRange(hsv, bleu_clair, bleu_fonce)
+    #bleu_clair = np.array([0, 0, 0])
+    #bleu_fonce = np.array([179, 200, 150])
+    #masque_bleu = cv2.inRange(hsv, bleu_clair, bleu_fonce)
 
     cv2.imwrite("image_apres_extraction/debug_1_extraction_brute.png", masque_bleu)
 
@@ -104,11 +138,16 @@ def extraction_reconstruction_test1(chemin_img):
     kernel3 = np.ones((3, 3), np.uint8)
     kernel7 = np.ones((7, 7), np.uint8)
     kernel4 = np.ones((4, 4), np.uint8)
-
-    masque_gras= cv2.dilate(masque_bleu, kernel5, iterations = 1)
-    masque_propre = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
+    masque_gras= cv2.dilate(masque_bleu, kernel3, iterations = 2)
+    masque_plein = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
+    flou = cv2.GaussianBlur(masque_plein, (5, 5), 0)
+    _, masque_propre = cv2.threshold(flou, 127, 255, cv2.THRESH_BINARY)
+    #masque_bouche_trou = cv2.morphologyEx(masque_bleu, cv2.MORPH_CLOSE, kernel5)
+    
+    #masque_sans_bruit = cv2.morphologyEx(masque_bouche_trou, cv2.MORPH_OPEN, kernel5)
+    
     #masque_propre = cv2.morphologyEx(masque_propre, cv2.MORPH_OPEN, kernel3)
-    masque_propre = cv2.medianBlur(masque_propre, 5)
+    #masque_propre = cv2.medianBlur(masque_gras, 5)
 
     #kernel_bouche_trou = np.ones((5, 5), np.uint8)
     #masque_lisse = cv2.morphologyEx(masque_propre, cv2.MORPH_CLOSE, kernel_bouche_trou)
@@ -119,6 +158,33 @@ def extraction_reconstruction_test1(chemin_img):
 
     #squelettisation
     squelette = cv2.ximgproc.thinning(masque_propre)
+    
+    # --- NOUVEAU : Nettoyage après squelettisation ---
+
+    # 1. On identifie tous les objets isolés sur le squelette
+    # Puisque le squelette est déjà en 0/255, c'est parfait pour la fonction.
+    # connectivity=8 est crucial pour ne pas briser la courbe
+    nb_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(squelette, connectivity=8)
+
+    # 2. On crée une image vide pour reconstruire le squelette propre
+    squelette_nettoye = np.zeros_like(squelette)
+
+    # L'index 0 est le fond noir, on commence donc à 1 pour les objets
+    for i in range(1, nb_labels):
+        # On récupère l'aire en pixels de l'objet i
+        aire = stats[i, cv2.CC_STAT_AREA]
+        
+        # Ton seuil : on supprime tout ce qui est <= 10 pixels
+        if aire > 20:
+            # On réécrit cet objet dans notre image propre
+            squelette_nettoye[labels == i] = 255
+
+    # 3. On remplace l'ancien squelette
+    squelette = squelette_nettoye
+    # ------------------------------------------------
+
+
+
     cv2.imwrite("image_apres_extraction/debug_3_squelette.png", squelette)
     #extraction coord 
     contours, _ = cv2.findContours(squelette, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
@@ -227,7 +293,11 @@ def extraction_reconstruction_test1(chemin_img):
         #nb = min(len(x_final), 40)
         if len(x_final) > 30:
             if len(set(x_final[-40:])) >2:
-                p_lin = np.polyfit(x_final[-40:], y_final[-40:], 1)
+                x_recent_lin = np.array(x_final[-40:])
+                y_recent_lin = np.array(y_final[-40:])
+                x_ref_lin = x_recent_lin[-1]
+                p_lin = np.polyfit(x_recent_lin - x_ref_lin, y_recent_lin, 1)
+
                 pente_lineaire = p_lin[0]
             if len(set(x_final[-200:])) > 10:
                 x_recent = np.array(x_final[-200:])
@@ -269,8 +339,9 @@ def extraction_reconstruction_test1(chemin_img):
                     if len(candidats_valides) > 1:
                         x_abs_start = x_curr + (jour_actuel * largeur_image)
                         y_start = y_curr
-                        x_abs_end = x_curr + 60
-                        y_end = y_curr + (pente_lineaire * 60)
+                        dx = 60
+                        x_abs_end = x_abs_start + dx
+                        y_end = y_curr + (pente_lineaire * dx)
 
                         visualisation_pentes.append(([x_abs_start, x_abs_end], [y_start, y_end]))
                     def score_trajectoire(pt_test):
@@ -431,7 +502,7 @@ def extraction_reconstruction_test1(chemin_img):
     
     return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101), visualisation_pentes, points_list
 
-chemin = "image/HPSC0869.tif"
+chemin = "image/HPSC0178.tif"
 
 try:
     x_val, y_raw, y_final, v_pentes, points_list = extraction_reconstruction_test1(chemin)
@@ -451,11 +522,16 @@ try:
     plt.close()
     print("resultat enregistré")
 
+    x_val = x_val[:-10]
+    y_raw = y_raw[:-10]
+    y_final = y_final[:-10]
+    
     img = cv2.imread(chemin)
     largeur_image = img.shape[1]
+    hauteur_image = img.shape[0]
     jours_associes = (x_val // largeur_image).astype(int)
     nb_jours_trouves = jours_associes.max() + 1
-    
+
     for j in range(nb_jours_trouves):
         masque_jour = (jours_associes == j)
         if not np.any(masque_jour):
@@ -465,8 +541,13 @@ try:
         y_jour_brut = y_raw[masque_jour]
 
         plt.figure(figsize=(12, 6))
+        diffs = np.diff(x_jour_local)
+        y_visualisation = y_jour_brut.astype(float).copy()
+        indices_sauts = np.where((diffs < 0) | (diffs > 100))[0]
+        for idx in indices_sauts:
+            y_visualisation[idx] = np.nan
         
-        plt.plot(x_jour_local, y_jour_brut, color='blue', linewidth=2, label=f'Reconstruction Jour {j+1}', zorder=5)
+        plt.plot(x_jour_local, y_visualisation, color='blue', linewidth=2, linestyle='-', label=f'Reconstruction Jour {j+1}', zorder=5)
         plt.scatter(points_list_np[:, 0], points_list_np[:, 1], s=1, color='lightgray', alpha=0.1, label='Squelette total')
 
         first_pente = True
@@ -488,8 +569,16 @@ try:
                     plt.scatter(x_local[0], seg_y[0], color='green', s=10, zorder=11)
                     first_pente = False
 
+        #pour afficher les heures sur le graph
+        heures_labels = [f"{h:02d}h" for h in range(0, 25, 2)]
+        positions_pixels = [(h * largeur_image) / 24 for h in range(0, 25, 2)]
+        plt.xticks(positions_pixels, heures_labels)
+        plt.xlim(0, largeur_image)
+        plt.ylim(0, hauteur_image)
+        plt.grid(axis='x', linestyle='--', alpha=0.4)
+        
         plt.title(f"Marégramme - Jour {j+1}")
-        plt.xlabel("Pixels (Temps)")
+        plt.xlabel("heure")
         plt.ylabel("Pixels (Hauteur)")
         plt.gca().invert_yaxis()
         plt.legend()
