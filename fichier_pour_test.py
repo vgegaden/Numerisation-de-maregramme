@@ -100,84 +100,84 @@ def extraction_reconstruction_test1(chemin_img):
         print(f"Erreur : Impossible de charger {chemin_img}")
         return None
         
+    # On utilise ta fonction de redressement habituelle
     img = redresser_et_rogner_grille(img_hd)
     
-    # 2. Passage en HSV et extraction des canaux
+    # 2. Espace colorimétrique et Amélioration
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
-    h_channel = hsv[:, :, 0]
-    s_channel = hsv[:, :, 1]
-    v_channel = hsv[:, :, 2]
+    h_channel, s_channel, v_channel = cv2.split(hsv)
     
-    # 3. Boost du contraste (CLAHE) et Seuillage Adaptatif
-    # On force l'extraction des micro-différences pour voir la courbe pâle
-    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
+    # CLAHE pour booster les courbes pâles avant le seuillage
+    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8,8))
     v_boosted = clahe.apply(v_channel)
     
-    # On détecte tout ce qui est plus sombre que le papier environnant
-    masque_courbe_sensible = cv2.adaptiveThreshold(
+    # 3. Seuillage Adaptatif (indispensable pour les courbes fantômes)
+    masque_adaptatif = cv2.adaptiveThreshold(
         v_boosted, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
         cv2.THRESH_BINARY_INV, 51, 15
     )
+
+    # 4. Analyse de la Teinte Dominante (avec protection structurelle)
+    # On définit deux zones : une "pâle" (courbe) et une "saturée" (stylo)
+    masque_pale = cv2.inRange(hsv, (75, 5, 5), (160, 60, 255))
+    masque_sat = cv2.inRange(hsv, (75, 61, 5), (160, 255, 255))
+
+    # Filtre horizontal long pour isoler la courbe du texte
+    kernel_long = cv2.getStructuringElement(cv2.MORPH_RECT, (80, 1))
     
-    # Sauvegarde du masque brut pour vérification
-    cv2.imwrite("image_apres_extraction/debug_0_adaptatif_pur.png", masque_courbe_sensible)
+    # On cherche s'il existe une ligne longue et pâle
+    struct_pale = cv2.morphologyEx(cv2.bitwise_and(masque_adaptatif, masque_pale), cv2.MORPH_OPEN, kernel_long)
 
-    # 4. Identification du texte (Stylo bleu saturé)
-    # On définit ce qui est "vraiment bleu" pour pouvoir l'exclure ou l'analyser
-    masque_sat = cv2.inRange(hsv, (75, 56, 5), (160, 255, 255))
+    if np.any(struct_pale > 0):
+        print("Mode : Courbe pâle détectée.")
+        hist_final = cv2.calcHist([h_channel], [0], struct_pale, [180], [0, 180])
+    else:
+        print("Mode : Courbe standard/sombre.")
+        cible_sat = cv2.bitwise_and(masque_adaptatif, masque_sat)
+        poids_courbe = cv2.morphologyEx(cible_sat, cv2.MORPH_OPEN, kernel_long)
+        hist_final = cv2.calcHist([h_channel], [0], cible_sat + (poids_courbe * 10), [180], [0, 180])
 
-    # 5. STRATÉGIE DE SAUVETAGE GÉOMÉTRIQUE
-    # On retire le stylo saturé du masque avant de chercher les formes horizontales
-    masque_travail = cv2.bitwise_and(masque_courbe_sensible, cv2.bitwise_not(masque_sat))
+    # Nettoyage de l'histogramme (exclusion des rouges/jaunes)
+    hist_final[0:75] = 0
+    hist_final[160:180] = 0
+    teinte_dominante = np.argmax(hist_final)
+    print(f"Teinte détectée : {teinte_dominante}")
 
-    # On donne un peu d'épaisseur aux pointillés pour former des lignes solides
-    masque_epais = cv2.dilate(masque_travail, np.ones((2, 2), np.uint8))
+    # 5. Création du Masque de Couleur Final
+    # Sécurité : si on détecte le stylo (125-135), on élargit pour ne pas rater le bleu pâle
+    if 120 <= teinte_dominante <= 135:
+        basse_h, haute_h = np.array([85, 5, 5]), np.array([140, 255, 255])
+    else:
+        ecart = 15
+        basse_h = np.array([max(0, teinte_dominante - ecart), 5, 5])
+        haute_h = np.array([min(179, teinte_dominante + ecart), 255, 255])
 
-    # Filtre horizontal de 15 pixels : assez long pour la marée, trop long pour le texte vertical
-    kernel_souple = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1))
-    masque_bleu = cv2.morphologyEx(masque_epais, cv2.MORPH_OPEN, kernel_souple)
+    masque_teinte = cv2.inRange(hsv, basse_h, haute_h)
+    masque_bleu = cv2.bitwise_and(masque_adaptatif, masque_teinte)
 
-    # Reconnexion initiale des segments
-    kernel_reconnex_init = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
-    masque_bleu = cv2.morphologyEx(masque_bleu, cv2.MORPH_CLOSE, kernel_reconnex_init)
-
-    cv2.imwrite("image_apres_extraction/debug_1_extraction_brute.png", masque_bleu)
-
-    # 6. ÉTAPE DE FINITION ET NETTOYAGE
-    # On rebouche les micro-coupures avec un noyau carré (iterations=2 pour plus de force)
-    kernel_carre = np.ones((3, 3), np.uint8)
-    masque_propre = cv2.morphologyEx(masque_bleu, cv2.MORPH_CLOSE, kernel_carre, iterations=2)
-
-    # Dilatation horizontale finale pour lier les grands manques
-    kernel_h_final = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 1))
-    masque_propre = cv2.dilate(masque_propre, kernel_h_final, iterations=1)
-
-    # 7. Suppression des résidus isolés par surface
-    # On élimine tout objet qui n'est pas une "grande" structure (surface < 100 pixels)
-    nb_labels, labels, stats, _ = cv2.connectedComponentsWithStats(masque_propre, connectivity=8)
-    masque_final = np.zeros_like(masque_propre)
-
+    # 6. Nettoyage Géométrique Final
+    # On soude les pointillés
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 1))
+    masque_bleu = cv2.morphologyEx(masque_bleu, cv2.MORPH_CLOSE, kernel_close)
+    
+    # On élimine les petits débris (texte, taches)
+    nb_labels, labels, stats, _ = cv2.connectedComponentsWithStats(masque_bleu, connectivity=8)
+    masque_final = np.zeros_like(masque_bleu)
     for i in range(1, nb_labels):
-        if stats[i, cv2.CC_STAT_AREA] > 100:
+        if stats[i, cv2.CC_STAT_AREA] > 150: # Garde uniquement les grandes structures
             masque_final[labels == i] = 255
 
-    cv2.imwrite("image_apres_extraction/debug_2_extraction_propre.png", masque_final)
-
-    # 8. Squelettisation finale
+    # 7. Squelettisation
     squelette = cv2.ximgproc.thinning(masque_final)
     
-    # Petit nettoyage final du squelette pour retirer les derniers pixels orphelins
-    nb_labels, labels, stats, _ = cv2.connectedComponentsWithStats(squelette, connectivity=8)
-    squelette_nettoye = np.zeros_like(squelette)
-    for i in range(1, nb_labels):
-        if stats[i, cv2.CC_STAT_AREA] > 10: # Un segment de courbe doit faire au moins 10px
-            squelette_nettoye[labels == i] = 255
-
-    cv2.imwrite("image_apres_extraction/debug_3_squelette_final.png", squelette_nettoye)
+    # Sauvegardes de debug
+    cv2.imwrite("image_apres_extraction/debug_1_brut.png", masque_bleu)
+    cv2.imwrite("image_apres_extraction/debug_2_propre.png", masque_final)
+    cv2.imwrite("image_apres_extraction/debug_3_squelette.png", squelette)
     
-    return squelette_nettoye
+    return squelette
 
-chemin_image = "image/HPSC0107.tif"
+chemin_image = "image/HPSC0178.tif"
 if os.path.exists(chemin_image):
     print(f"Lancement de l'analyse pour : {chemin_image}")
     resultat = extraction_reconstruction_test1(chemin_image)
