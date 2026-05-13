@@ -6,15 +6,15 @@ from scipy.spatial import KDTree #pour améliorer la vitesse
 import traceback
 import os
 import random
-
-
 def redresser_et_rogner_grille(img_hd):
     h, w = img_hd.shape[:2]
     
     gris = cv2.cvtColor(img_hd, cv2.COLOR_BGR2GRAY)
-    #passer dans l'espace binaire
+    #passer dans l'espace binaire   
     binary = cv2.adaptiveThreshold(gris, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
     cv2.THRESH_BINARY_INV, 21, 10)
+    
+    
     #structure horizontale
     kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 40, 1))
     #struct verticale
@@ -25,8 +25,6 @@ def redresser_et_rogner_grille(img_hd):
     lignes_v = cv2.dilate(cv2.erode(binary, kernel_v), kernel_v)
     #ne garder que les endroits où les lignes se croisent
     intersections = cv2.bitwise_and(lignes_h, lignes_v)
-    
-    
     #dilater les points pour que la densité soit bien detectable
     grille_points = cv2.dilate(intersections, np.ones((5, 5), np.uint8), iterations=1)
     #cv2.imwrite("image_apres_extraction/lignes_horizontales.png", lignes_h)
@@ -50,7 +48,6 @@ def redresser_et_rogner_grille(img_hd):
     else:
         y_top, y_bottom = 0, h
     
-    
     #analyse densité horizontale sur les intersections
     grille_structure = cv2.add(lignes_h, lignes_v)
     #pareil qu'avant mais en écrasant vers le haut
@@ -67,7 +64,6 @@ def redresser_et_rogner_grille(img_hd):
         #calculer la largeur de chaque objet trouvé et garder le plus grand
         idx_max = np.argmax(fins - debuts)
         x_left, x_right = debuts[idx_max], fins[idx_max]
-    
     
     #trouver l'angle de la grille
     #trouver l'inclinaison grâce aux lignes verticales
@@ -88,9 +84,7 @@ def redresser_et_rogner_grille(img_hd):
     #crop final
     img_finale = img_rot[y_top:y_bottom, x_left:x_right]
     print(f"Grille isolée (Intersections) : {img_finale.shape[1]}x{img_finale.shape[0]} pixels")
-    
     return img_finale
-
 
 
 #chemin_image = "image/HPSC0108.tif"
@@ -99,64 +93,91 @@ def redresser_et_rogner_grille(img_hd):
 #cv2.imwrite("test_grille_isolee.png", image_resultat)
 #print("reulstat crop grille sauvegardé")
 
-
 def extraction_reconstruction_test1(chemin_img):
-    # 1. Préparation : On utilise la fonction de grille pour avoir une base propre
+    # 1. Chargement et Redressement
     img_hd = cv2.imread(chemin_img)
-    img = redresser_et_rogner_grille(img_hd) # Appel de la fonction de redressement
-    cv2.imwrite("test_grille_isolee.png", img)
-    # 2. Ton process d'analyse HSV
+    if img_hd is None:
+        print(f"Erreur : Impossible de charger {chemin_img}")
+        return None
+        
+    img = redresser_et_rogner_grille(img_hd)
+    
+    # 2. Passage en HSV et extraction des canaux
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
     v_channel = hsv[:, :, 2]
-    v_blur = cv2.GaussianBlur(v_channel, (5, 5), 0)
-    ret, masque_adaptatif = cv2.threshold(v_blur, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    # Création du masque pour l'histogramme
-    masque_pour_histo = cv2.bitwise_and(masque_adaptatif, cv2.threshold(s_channel, 30, 255, cv2.THRESH_BINARY)[1])
-    # 3. Calcul de l'histogramme des teintes
-    hist_h = cv2.calcHist([h_channel], [0], masque_pour_histo, [180], [0, 180])
-    # Nettoyage de l'histogramme pour ignorer l'orange de la grille
-    hist_h[0:10] = 0
-    hist_h[170:180] = 0
-    teinte_dominante = np.argmax(hist_h)
-    print(f"Teinte dominante de l'encre détectée : {teinte_dominante}")
-    # 4. Création du masque de tolérance
-    ecart = 15
-    basse_h = max(0, teinte_dominante - ecart)
-    haute_h = min(179, teinte_dominante + ecart)
-    basse_h_np = np.array([basse_h], dtype="uint8")
-    haute_h_np = np.array([haute_h], dtype="uint8")
-    masque_teinte = cv2.inRange(h_channel, basse_h_np, haute_h_np)
-    # 5. COMBINAISON FINALE (Sombre + Couleur)
-    masque_bleu_propre = cv2.bitwise_and(masque_adaptatif, masque_teinte)
-    masque_bleu = masque_bleu_propre
+    
+    # 3. Boost du contraste (CLAHE) et Seuillage Adaptatif
+    # On force l'extraction des micro-différences pour voir la courbe pâle
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8,8))
+    v_boosted = clahe.apply(v_channel)
+    
+    # On détecte tout ce qui est plus sombre que le papier environnant
+    masque_courbe_sensible = cv2.adaptiveThreshold(
+        v_boosted, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+        cv2.THRESH_BINARY_INV, 51, 15
+    )
+    
+    # Sauvegarde du masque brut pour vérification
+    cv2.imwrite("image_apres_extraction/debug_0_adaptatif_pur.png", masque_courbe_sensible)
+
+    # 4. Identification du texte (Stylo bleu saturé)
+    # On définit ce qui est "vraiment bleu" pour pouvoir l'exclure ou l'analyser
+    masque_sat = cv2.inRange(hsv, (75, 56, 5), (160, 255, 255))
+
+    # 5. STRATÉGIE DE SAUVETAGE GÉOMÉTRIQUE
+    # On retire le stylo saturé du masque avant de chercher les formes horizontales
+    masque_travail = cv2.bitwise_and(masque_courbe_sensible, cv2.bitwise_not(masque_sat))
+
+    # On donne un peu d'épaisseur aux pointillés pour former des lignes solides
+    masque_epais = cv2.dilate(masque_travail, np.ones((2, 2), np.uint8))
+
+    # Filtre horizontal de 15 pixels : assez long pour la marée, trop long pour le texte vertical
+    kernel_souple = cv2.getStructuringElement(cv2.MORPH_RECT, (15, 1))
+    masque_bleu = cv2.morphologyEx(masque_epais, cv2.MORPH_OPEN, kernel_souple)
+
+    # Reconnexion initiale des segments
+    kernel_reconnex_init = cv2.getStructuringElement(cv2.MORPH_RECT, (40, 1))
+    masque_bleu = cv2.morphologyEx(masque_bleu, cv2.MORPH_CLOSE, kernel_reconnex_init)
+
     cv2.imwrite("image_apres_extraction/debug_1_extraction_brute.png", masque_bleu)
-    # 6. Tes kernels et ton nettoyage morphologique
-    kernel3 = np.ones((3, 3), np.uint8)
-    kernel5 = np.ones((5, 5), np.uint8)
-    masque_gras = cv2.dilate(masque_bleu, kernel3, iterations=2)
-    masque_plein = cv2.morphologyEx(masque_gras, cv2.MORPH_CLOSE, kernel5)
-    flou = cv2.GaussianBlur(masque_plein, (5, 5), 0)
-    _, masque_propre = cv2.threshold(flou, 127, 255, cv2.THRESH_BINARY)
-    cv2.imwrite("image_apres_extraction/debug_2_extraction_propre.png", masque_propre)
-    # 7. Squelettisation
-    squelette = cv2.ximgproc.thinning(masque_propre)
-    # 8. Nettoyage après squelettisation (Connected Components)
-    nb_labels, labels, stats, centroids = cv2.connectedComponentsWithStats(squelette, connectivity=8)
+
+    # 6. ÉTAPE DE FINITION ET NETTOYAGE
+    # On rebouche les micro-coupures avec un noyau carré (iterations=2 pour plus de force)
+    kernel_carre = np.ones((3, 3), np.uint8)
+    masque_propre = cv2.morphologyEx(masque_bleu, cv2.MORPH_CLOSE, kernel_carre, iterations=2)
+
+    # Dilatation horizontale finale pour lier les grands manques
+    kernel_h_final = cv2.getStructuringElement(cv2.MORPH_RECT, (20, 1))
+    masque_propre = cv2.dilate(masque_propre, kernel_h_final, iterations=1)
+
+    # 7. Suppression des résidus isolés par surface
+    # On élimine tout objet qui n'est pas une "grande" structure (surface < 100 pixels)
+    nb_labels, labels, stats, _ = cv2.connectedComponentsWithStats(masque_propre, connectivity=8)
+    masque_final = np.zeros_like(masque_propre)
+
+    for i in range(1, nb_labels):
+        if stats[i, cv2.CC_STAT_AREA] > 100:
+            masque_final[labels == i] = 255
+
+    cv2.imwrite("image_apres_extraction/debug_2_extraction_propre.png", masque_final)
+
+    # 8. Squelettisation finale
+    squelette = cv2.ximgproc.thinning(masque_final)
+    
+    # Petit nettoyage final du squelette pour retirer les derniers pixels orphelins
+    nb_labels, labels, stats, _ = cv2.connectedComponentsWithStats(squelette, connectivity=8)
     squelette_nettoye = np.zeros_like(squelette)
     for i in range(1, nb_labels):
-        aire = stats[i, cv2.CC_STAT_AREA]
-        if aire > 20: # Ton seuil de 20 pixels
+        if stats[i, cv2.CC_STAT_AREA] > 10: # Un segment de courbe doit faire au moins 10px
             squelette_nettoye[labels == i] = 255
-    squelette = squelette_nettoye
+
+    cv2.imwrite("image_apres_extraction/debug_3_squelette_final.png", squelette_nettoye)
     
-    # Sauvegarde finale du résultat
-    cv2.imwrite("image_apres_extraction/debug_3_squelette_final.png", squelette)
-    return squelette
+    return squelette_nettoye
 
-
-chemin_image = "image/HPSC0869.tif"
+chemin_image = "image/HPSC0107.tif"
 if os.path.exists(chemin_image):
     print(f"Lancement de l'analyse pour : {chemin_image}")
     resultat = extraction_reconstruction_test1(chemin_image)
