@@ -1,10 +1,9 @@
-#test méthode avec segmentation couleur (extraction)
-#avec squelettisation (extraction)
-#detection de contours (reconstruction)
-#ajout logique j+1
-#ajout régression linéaire
-#ajout logique pour trouver la courbe du jour 1
-#ajout kdtree 
+#interaction utilisateur pour demander la date
+#extraction grille avec detection des croisements des lignes de fond
+#extraction courbes avec hsv
+#recherche du point de départ avec un kdtree
+#gestion des croisements avec régression linéaire
+#retour à la ligne pour gérer la courbe du jour suivant
 
 
 import cv2
@@ -13,83 +12,138 @@ import matplotlib.pyplot as plt
 from scipy.signal import medfilt
 from scipy.spatial import KDTree #pour améliorer la vitesse
 import traceback
+import os
+import random
+from datetime import datetime
+
+
+def etape_0_acquisition_dates():
+    
+    # 1. Demande de la date de pose
+    while True:
+        saisie_pose = input("Entrez la date de POSE (format DD/MM/YYYY) : ")
+        try:
+            date_pose = datetime.strptime(saisie_pose, "%d/%m/%Y")
+            break
+        except ValueError:
+            print("Format incorrect. Utiliser le format JJ/MM/AAAA (ex: 27/01/1909) et sans espace.")
+
+    # 2. Demande de la date de retrait
+    while True:
+        saisie_retrait = input("Entrez la date de RETRAIT (format DD/MM/YYYY) : ")
+        try:
+            date_retrait = datetime.strptime(saisie_retrait, "%d/%m/%Y")
+            if date_retrait < date_pose:
+                print("Erreur : Date de retrait antérieure à la date de pose.")
+                continue
+            break
+        except ValueError:
+            print("Format incorrect. Utiliser le format JJ/MM/AAAA (ex: 27/01/1909) et sans espace.")
+
+    # 3. Calcul de l'écart
+    # .days renvoie la différence exacte en nombre de jours
+    nb_jours = (date_retrait - date_pose).days + 1
+    
+    # ATTENTION : Si posé le 27 et retiré le 28, l'écart est de 1 jour, 
+    # mais il y a techniquement 2 courbes entamées sur le papier (le 27 ET le 28).
+    nb_courbes = nb_jours
+
+    
+    print(f"Marégramme allant du {date_pose.strftime('%d/%m/%Y')} au {date_retrait.strftime('%d/%m/%Y')}")
+    print(f"Enregistrement de {nb_jours} jours")
+    print(f"Nombre de courbes théoriques : {nb_courbes}")
+    
+    return date_pose, date_retrait, nb_courbes
 
 
 def redresser_et_rogner_grille(img_hd):
-    #travail sur gris car travail sur formes
+    h, w = img_hd.shape[:2]
+    
+    # 1. Extraction Structurelle
     gris = cv2.cvtColor(img_hd, cv2.COLOR_BGR2GRAY)
-    #flou pour enlever un peu de bruit
-    flou = cv2.GaussianBlur(gris, (9,9), 0)
-    #seuil pour s'adapter pour faire ressortir le cadre même si l'expo est inégale
-    #plus le chiffre a la fin est grand et plus la detection est severe
-    seuil = cv2.adaptiveThreshold(flou, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY_INV, 11, 4)
-    #dlater lignes pour souder le tout
-    kernel5 = np.ones((5, 5), np.uint8)
-    edges = cv2.dilate(seuil, kernel5, iterations=2)
-
-    cv2.imwrite("image_apres_extraction/grille_dilate.png", edges)
-
-    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-    if not contours:
-        print("pas de contours détecté")
-        return img_hd
+    #passer dans l'espace binaire
+    binary = cv2.adaptiveThreshold(gris, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                   cv2.THRESH_BINARY_INV, 21, 10)
     
-    cadre = max(contours, key=cv2.contourArea)
-    #calculer angle pour remettre dans le bon angle
-    rect = cv2.minAreaRect(cadre)
-    angle = rect[-1]
-    if angle < -45:
-        angle = -(90 + angle)
-    else: angle=-angle
+    #structure horizontale
+    kernel_h = cv2.getStructuringElement(cv2.MORPH_RECT, (w // 40, 1))
+    #struct verticale
+    kernel_v = cv2.getStructuringElement(cv2.MORPH_RECT, (1, h // 40))
+    #ligne horizontale
+    lignes_h = cv2.dilate(cv2.erode(binary, kernel_h), kernel_h)
+    #structure verticale
+    lignes_v = cv2.dilate(cv2.erode(binary, kernel_v), kernel_v)
 
-    print (f"angle de rota détecté : {angle:.2f} degrés")
-
-    #effectuer la rota de l'image
-    (h, w) = img_hd.shape[:2]
-    centre = (w // 2, h // 2)
-    matrice_rota = cv2.getRotationMatrix2D(centre, angle, 1.0)
-    #interpolation lineaire pour garder la qualité et border_replicate pour éviter les bords noirs
-    img_redressee = cv2.warpAffine(img_hd, matrice_rota, (w, h), 
-                                   flags=cv2.INTER_LINEAR, 
-                                   borderMode=cv2.BORDER_REPLICATE)
-
-    #test
-    hsv_final = cv2.cvtColor(img_redressee, cv2.COLOR_BGR2HSV)
-    bas_rouge1 = np.array([0, 50, 50])
-    haut_rouge1 = np.array([10, 255, 255])
-    bas_rouge2 = np.array([170, 50, 50])
-    haut_rouge2 = np.array([180, 255, 255])
-    masque_rouge1 = cv2.inRange(hsv_final, bas_rouge1, haut_rouge1)
-    masque_rouge2 = cv2.inRange(hsv_final, bas_rouge2, haut_rouge2)
-    masque_rouge = cv2.add(masque_rouge1, masque_rouge2)
-    masque_rouge = cv2.morphologyEx(masque_rouge, cv2.MORPH_CLOSE, kernel5)
-    contours_rouges, _ = cv2.findContours(masque_rouge, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    #ne garder que les endroits où les lignes se croisent
+    intersections = cv2.bitwise_and(lignes_h, lignes_v)
     
+    #dilater les points pour que la densité soit bien detectable
+    grille_points = cv2.dilate(intersections, np.ones((5, 5), np.uint8), iterations=1)
+    #cv2.imwrite("image_apres_extraction/lignes_horizontales.png", lignes_h)
+    #cv2.imwrite("image_apres_extraction/lignes_verticales.png", lignes_v)
+    #cv2.imwrite("image_apres_extraction/intersections.png", grille_points)
+
+    #analyse densité verticale sur les intersections
+    #ecraser nuage de point sur la gauche pour capter densité
+    densite_v = np.sum(grille_points, axis=1) / 255
+    #trouver les lignes qui contiennent plus de 2 points d'intersection
+    indices_y = np.where(densite_v > 2)[0] # Seuil très bas car ce ne sont que des points
     
-    #rogner grille sur image finale
-    gris_final = cv2.cvtColor(img_redressee, cv2.COLOR_BGR2GRAY)
-    _, seuil_final = cv2.threshold(gris_final, 50, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    contours_final, _ = cv2.findContours(seuil_final, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if len(indices_y) > 0:
+        #y du haut de notre grille
+        y_top = indices_y[0]
+        #y du bas de notre grille
+        y_bottom = indices_y[-1]
+        
+        # Sécurité : on redonne 5-10 pixels de marge pour ne pas couper le trait
+        y_top = max(0, y_top - 5)
+        y_bottom = min(h, y_bottom + 5)
+    else:
+        y_top, y_bottom = 0, h
+
+    #analyse densité horizontale sur les intersections
+
+    grille_structure = cv2.add(lignes_h, lignes_v)
+    #pareil qu'avant mais en écrasant vers le haut
+    densite_x = np.sum(grille_structure, axis=0) / 255
+    #ne garder que les colonnes qui contiennent au moins 2% de la hauteur de l'image
+    indices_x = np.where(densite_x > (h * 0.02))[0]
     
-    if contours_rouges:
-        cadre_rouge = max(contours_rouges, key = cv2.contourArea)
-        x, y, w_g, h_g = cv2.boundingRect(cadre_rouge)
-        marge_interieur = int(h * 0.04)
-        #slicing final
-        #on prend le point de depart auquel on ajoute la hauteur et la largeur
-        #pour aller jusqu'au bout de la grille et conserver la bonne resolution
-        img_finale = img_redressee[y:y+h_g, x:x+w_g]
-        print(f"Grille isolée : {w_g}x{h_g} pixels")
-        print(f"Grille avec crop brut : {img_finale.shape[1]}x{img_finale.shape[0]}")
-        return img_finale
+    x_left, x_right = 0, w
+    if len(indices_x) > 0:
+        #calculer l'écart entre chaque colonne détecté
+        diff = np.diff(indices_x)
+        coupures = np.where(diff > 150)[0]
+        debuts = np.insert(indices_x[coupures + 1], 0, indices_x[0])
+        fins = np.append(indices_x[coupures], indices_x[-1])
+        #calculer la largeur de chaque objet trouvé et garder le plus grand
+        idx_max = np.argmax(fins - debuts)
+        x_left, x_right = debuts[idx_max], fins[idx_max]
 
-    return img_redressee
+    #trouver l'angle de la grille
+    #trouver l'inclinaison grâce aux lignes verticales 
+    contours, _ = cv2.findContours(lignes_v, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    angle = 0
+    if contours:
+        #la plus grande ligne verticale
+        cnt = max(contours, key=cv2.contourArea)
+        #dessiner un rectangle autour de cette ligne et prendre l'angle d'inclinaison
+        res_angle = cv2.minAreaRect(cnt)[2]
+        angle = res_angle + 90 if res_angle < -45 else res_angle
+
+    #faire une matrice de rotation qui contient l'angle opposé à la grille
+    mat_rot = cv2.getRotationMatrix2D((w // 2, h // 2), angle, 1.0)
+    #appliquer matrice sur grille de base pour obtenir grille droite
+    img_rot = cv2.warpAffine(img_hd, mat_rot, (w, h), borderMode=cv2.BORDER_REPLICATE)
+
+    #crop final
+    img_finale = img_rot[y_top:y_bottom, x_left:x_right]
+    
+    print(f"Grille isolée (Intersections) : {img_finale.shape[1]}x{img_finale.shape[0]} pixels")
+    return img_finale
 
 
-def extraction_reconstruction_test1(chemin_img):
-    img_hd = cv2.imread(chemin_img)
-    img = redresser_et_rogner_grille(img_hd)
-    cv2.imwrite("test_grille_isolee.png", img)
+def extraction_courbe_hsv(img):
     hsv = cv2.cvtColor(img, cv2.COLOR_BGR2HSV)
     h_channel = hsv[:, :, 0]
     s_channel = hsv[:, :, 1]
@@ -101,7 +155,7 @@ def extraction_reconstruction_test1(chemin_img):
     # On calcule l'histogramme des teintes (0 à 179)
     hist_h = cv2.calcHist([h_channel], [0], masque_pour_histo, [180], [0, 180])
 
-    # 3. On trouve la teinte dominante (le pic de l'histogramme)
+    #On trouve la teinte dominante (le pic de l'histogramme)
     # On ignore les teintes très proches de 0 ou 180 (souvent du bruit rouge/orange de la grille)
     hist_h[0:10] = 0
     hist_h[170:180] = 0
@@ -109,8 +163,8 @@ def extraction_reconstruction_test1(chemin_img):
 
     print(f"Teinte dominante de l'encre détectée : {teinte_dominante}")
 
-    # 4. On crée un masque de tolérance autour de cette teinte dominante (+/- 15)
-    # C'est la "petite marge" que tu demandais.
+    #On crée un masque de tolérance autour de cette teinte dominante (+/- 15)
+    #
     ecart = 15
     basse_h = max(0, teinte_dominante - ecart)
     haute_h = min(179, teinte_dominante + ecart)
@@ -120,7 +174,7 @@ def extraction_reconstruction_test1(chemin_img):
     # On crée un masque qui ne garde que cette plage de teinte
     masque_teinte = cv2.inRange(h_channel, basse_h_np, haute_h_np)
 
-    # 5. COMBINAISON FINALE
+    #COMBINAISON FINALE
     # On ne garde que les pixels qui sont SOMBRES (Otsu) ET de la BONNE COULEUR
     masque_bleu_propre = cv2.bitwise_and(masque_adaptatif, masque_teinte)
 
@@ -132,6 +186,7 @@ def extraction_reconstruction_test1(chemin_img):
     #bleu_fonce = np.array([179, 200, 150])
     #masque_bleu = cv2.inRange(hsv, bleu_clair, bleu_fonce)
 
+    os.makedirs("image_apres_extraction", exist_ok=True)
     cv2.imwrite("image_apres_extraction/debug_1_extraction_brute.png", masque_bleu)
 
     kernel5 = np.ones((5, 5), np.uint8)
@@ -159,7 +214,7 @@ def extraction_reconstruction_test1(chemin_img):
     #squelettisation
     squelette = cv2.ximgproc.thinning(masque_propre)
     
-    # --- NOUVEAU : Nettoyage après squelettisation ---
+    #Nettoyage après squelettisation ---
 
     # 1. On identifie tous les objets isolés sur le squelette
     # Puisque le squelette est déjà en 0/255, c'est parfait pour la fonction.
@@ -174,7 +229,7 @@ def extraction_reconstruction_test1(chemin_img):
         # On récupère l'aire en pixels de l'objet i
         aire = stats[i, cv2.CC_STAT_AREA]
         
-        # Ton seuil : on supprime tout ce qui est <= 10 pixels
+        # Seuil : on supprime tout ce qui est <= 10 pixels
         if aire > 20:
             # On réécrit cet objet dans notre image propre
             squelette_nettoye[labels == i] = 255
@@ -183,9 +238,18 @@ def extraction_reconstruction_test1(chemin_img):
     squelette = squelette_nettoye
     # ------------------------------------------------
 
-
-
     cv2.imwrite("image_apres_extraction/debug_3_squelette.png", squelette)
+    return squelette
+
+
+def reconstruction_maregramme(chemin_img):
+    img_hd = cv2.imread(chemin_img)
+    img = redresser_et_rogner_grille(img_hd)
+    cv2.imwrite("test_grille_isolee.png", img)
+    
+    # Appel de la fonction d'extraction
+    squelette = extraction_courbe_hsv(img)
+
     #extraction coord 
     contours, _ = cv2.findContours(squelette, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
     points_list = []
@@ -195,7 +259,7 @@ def extraction_reconstruction_test1(chemin_img):
                 points_list.append(tuple(point[0]))
     
     if not points_list:
-        return [0],[0],[0]
+        return [0],[0],[0], [], []
     
     points_set = set(points_list)
     x_reconstruit = []
@@ -309,7 +373,7 @@ def extraction_reconstruction_test1(chemin_img):
         #cible_x = x_curr + 3
         #cible_y = y_curr + (pente_lineaire*3)
 
-        #logique j+1
+        #logique passage au jour suivant
         next_pt = None
         seuil_isolement = 10
         #si proche du bord droit
@@ -478,7 +542,7 @@ def extraction_reconstruction_test1(chemin_img):
                 #print("cycle terminé, retour au point de départ du jour 1")
                 #break
             current_point = next_pt
-            #test pour stopper la lecture de la courbe au bon endroit
+            #test pour stopper la lecture de la courbe au bon endroit (a supprimer)
             heure_actuelle = (current_point[0] / largeur_image) * 24
             if jour_actuel >=6 and heure_actuelle >= 17.15:
                 print("fin du marégramme")
@@ -502,95 +566,104 @@ def extraction_reconstruction_test1(chemin_img):
     
     return np.array(x_final), np.array(y_final), medfilt(y_final, kernel_size=101), visualisation_pentes, points_list
 
-chemin = "image/HPSC0178.tif"
 
-try:
-    x_val, y_raw, y_final, v_pentes, points_list = extraction_reconstruction_test1(chemin)
-    points_list_np = np.array(points_list)
-
-
-    plt.figure(figsize=(12, 6))
-    #plt.scatter(x_val, y_raw, s=1, color='gray', alpha=0.5, label='Points bruts (Pixels)')
-    plt.plot(x_val, y_final, color='blue', label='Signal lissé (Combo 2)')
-
-    plt.scatter(x_val % 4722, y_raw, s=1, color='red', alpha=0.1, label='Points bruts')
-
-    plt.title("Numérisation avec OpenCV + Filtrage + KDTree + suivi de pente_lineaire)")
-    plt.gca().invert_yaxis() 
-    plt.legend()
-    plt.savefig("resultat_numerisation.png")
-    plt.close()
-    print("resultat enregistré")
-
-    x_val = x_val[:-10]
-    y_raw = y_raw[:-10]
-    y_final = y_final[:-10]
+# ==========================================
+# SCRIPT PRINCIPAL D'EXECUTION ET GRAPHES
+# ==========================================
+if __name__ == "__main__":
     
-    img = cv2.imread(chemin)
-    largeur_image = img.shape[1]
-    hauteur_image = img.shape[0]
-    jours_associes = (x_val // largeur_image).astype(int)
-    nb_jours_trouves = jours_associes.max() + 1
+    # Étape 0 : Acquisition des dates de pose et retrait en console
+    d_pose, d_retrait, courbes_theoriques = etape_0_acquisition_dates()
+    
+    chemin = "image/HPSC0178.tif"
 
-    for j in range(nb_jours_trouves):
-        masque_jour = (jours_associes == j)
-        if not np.any(masque_jour):
-            continue
+    try:
+        # Appel de la fonction renommée principale
+        x_val, y_raw, y_final, v_pentes, points_list = reconstruction_maregramme(chemin)
+        points_list_np = np.array(points_list)
 
-        x_jour_local = x_val[masque_jour] % largeur_image
-        y_jour_brut = y_raw[masque_jour]
 
         plt.figure(figsize=(12, 6))
-        diffs = np.diff(x_jour_local)
-        y_visualisation = y_jour_brut.astype(float).copy()
-        indices_sauts = np.where((diffs < 0) | (diffs > 100))[0]
-        for idx in indices_sauts:
-            y_visualisation[idx] = np.nan
-        
-        plt.plot(x_jour_local, y_visualisation, color='blue', linewidth=2, linestyle='-', label=f'Reconstruction Jour {j+1}', zorder=5)
-        plt.scatter(points_list_np[:, 0], points_list_np[:, 1], s=1, color='lightgray', alpha=0.1, label='Squelette total')
+        #plt.scatter(x_val, y_raw, s=1, color='gray', alpha=0.5, label='Points bruts (Pixels)')
+        plt.plot(x_val, y_final, color='blue', label='Signal lissé (Combo 2)')
 
-        first_pente = True
-        for (seg_x_abs, seg_y) in v_pentes:
-            # On utilise le premier point du segment pour déterminer le jour
-            x_debut_abs = seg_x_abs[0]
-            jour_du_segment = int(x_debut_abs // largeur_image)
-            
-            if jour_du_segment == j:
-                # Conversion des X absolus en locaux pour le graphique (0 à largeur_image)
-                x_local = [x % largeur_image for x in seg_x_abs]
-                
-                if abs(x_local[1] - x_local[0]) < (largeur_image / 2):
+        plt.scatter(x_val % 4722, y_raw, s=1, color='red', alpha=0.1, label='Points bruts')
 
-                    lbl = "Pentes de décision" if first_pente else ""
-                    plt.plot(x_local, seg_y, color='red', linewidth=1.5, alpha=0.8, zorder=10, label=lbl)
-                
-                    # Petit point vert au départ de la décision
-                    plt.scatter(x_local[0], seg_y[0], color='green', s=10, zorder=11)
-                    first_pente = False
-
-        #pour afficher les heures sur le graph
-        heures_labels = [f"{h:02d}h" for h in range(0, 25, 2)]
-        positions_pixels = [(h * largeur_image) / 24 for h in range(0, 25, 2)]
-        plt.xticks(positions_pixels, heures_labels)
-        plt.xlim(0, largeur_image)
-        plt.ylim(0, hauteur_image)
-        plt.grid(axis='x', linestyle='--', alpha=0.4)
-        
-        plt.title(f"Marégramme - Jour {j+1}")
-        plt.xlabel("heure")
-        plt.ylabel("Pixels (Hauteur)")
-        plt.gca().invert_yaxis()
+        plt.title("Numérisation avec OpenCV + Filtrage + KDTree + suivi de pente_lineaire)")
+        plt.gca().invert_yaxis() 
         plt.legend()
-        
-        # Sauvegarde avec le nom dynamique
-        nom_fichier = f"graph_jour{j+1}.png"
-        plt.savefig(nom_fichier)
+        plt.savefig("resultat_numerisation.png")
         plt.close()
-        
-        print(f"Graphique {nom_fichier} enregistré.")
-    
-except Exception as e:
-    print(f"Erreur : {e}.")
-    traceback.print_exc()
+        print("resultat enregistré")
 
+        x_val = x_val[:-10]
+        y_raw = y_raw[:-10]
+        y_final = y_final[:-10]
+        
+        img = cv2.imread(chemin)
+        largeur_image = img.shape[1]
+        hauteur_image = img.shape[0]
+        jours_associes = (x_val // largeur_image).astype(int)
+        nb_jours_trouves = jours_associes.max() + 1
+
+        for j in range(nb_jours_trouves):
+            masque_jour = (jours_associes == j)
+            if not np.any(masque_jour):
+                continue
+
+            x_jour_local = x_val[masque_jour] % largeur_image
+            y_jour_brut = y_raw[masque_jour]
+
+            plt.figure(figsize=(12, 6))
+            diffs = np.diff(x_jour_local)
+            y_visualisation = y_jour_brut.astype(float).copy()
+            indices_sauts = np.where((diffs < 0) | (diffs > 100))[0]
+            for idx in indices_sauts:
+                y_visualisation[idx] = np.nan
+            
+            plt.plot(x_jour_local, y_visualisation, color='blue', linewidth=2, linestyle='-', label=f'Reconstruction Jour {j+1}', zorder=5)
+            plt.scatter(points_list_np[:, 0], points_list_np[:, 1], s=1, color='lightgray', alpha=0.1, label='Squelette total')
+
+            first_pente = True
+            for (seg_x_abs, seg_y) in v_pentes:
+                # On utilise le premier point du segment pour déterminer le jour
+                x_debut_abs = seg_x_abs[0]
+                jour_du_segment = int(x_debut_abs // largeur_image)
+                
+                if jour_du_segment == j:
+                    # Conversion des X absolus en locaux pour le graphique (0 à largeur_image)
+                    x_local = [x % largeur_image for x in seg_x_abs]
+                    
+                    if abs(x_local[1] - x_local[0]) < (largeur_image / 2):
+
+                        lbl = "Pentes de décision" if first_pente else ""
+                        plt.plot(x_local, seg_y, color='red', linewidth=1.5, alpha=0.8, zorder=10, label=lbl)
+                    
+                        # Petit point vert au départ de la décision
+                        plt.scatter(x_local[0], seg_y[0], color='green', s=10, zorder=11)
+                        first_pente = False
+
+            #pour afficher les heures sur le graph
+            heures_labels = [f"{h:02d}h" for h in range(0, 25, 2)]
+            positions_pixels = [(h * largeur_image) / 24 for h in range(0, 25, 2)]
+            plt.xticks(positions_pixels, heures_labels)
+            plt.xlim(0, largeur_image)
+            plt.ylim(0, hauteur_image)
+            plt.grid(axis='x', linestyle='--', alpha=0.4)
+            
+            plt.title(f"Marégramme - Jour {j+1}")
+            plt.xlabel("heure")
+            plt.ylabel("Pixels (Hauteur)")
+            plt.gca().invert_yaxis()
+            plt.legend()
+            
+            # Sauvegarde avec le nom dynamique
+            nom_fichier = f"graph_jour{j+1}.png"
+            plt.savefig(nom_fichier)
+            plt.close()
+            
+            print(f"Graphique {nom_fichier} enregistré.")
+        
+    except Exception as e:
+        print(f"Erreur : {e}.")
+        traceback.print_exc()
