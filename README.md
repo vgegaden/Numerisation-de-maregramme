@@ -37,6 +37,7 @@ Il est fortement conseillé d'utiliser un environnement virtuel pour isoler les 
   ```bash
   python -m venv venv
   .\venv\Scripts\activate
+  ```
 
 * **Sur macOS/Linux :**
   ```bash
