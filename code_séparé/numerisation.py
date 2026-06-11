@@ -3,10 +3,11 @@ import matplotlib.pyplot as plt
 from scipy.signal import medfilt
 from scipy.spatial import KDTree
 import cv2  # Nécessaire pour la fonction cv2.findContours
+import os
 
 def reconstruction_maregramme(squelette, img_cropped):
     """
-    Prend en entrée le squelette extrait et la grille rognée correspondante.
+    Prend en entrée le squelette extrait et la grille correspondante.
     Effectue le suivi temporel intelligent courbe par courbe.
     """
     # extraction coord 
@@ -234,76 +235,97 @@ def reconstruction_maregramme(squelette, img_cropped):
 
 
 # ==========================================================
-# PARTIE GRAPHIQUES ET PLOTS (À METTRE À LA SUITE DANS LE SCRIPT)
+# USAGE DIRECT ET AUTONOME
 # ==========================================================
-
-# Variables témoins nécessaires pour dimensionner les graphiques journaliers
-# (Doivent être récupérées depuis ton image rognée "img" ou "test_grille_isolee.png")
-largeur_image = img.shape[1]
-hauteur_image = img.shape[0]
-points_list_np = np.array(points_list)
-
-# --- 1. PLOT GLOBAL (Signal complet sur toute la période) ---
-plt.figure(figsize=(12, 6))
-plt.plot(x_val, y_final, color='blue', label='Signal lissé (Combo 2)')
-plt.scatter(x_val % 4722, y_raw, s=1, color='red', alpha=0.1, label='Points bruts')
-plt.title("Numérisation avec OpenCV + Filtrage + KDTree + suivi de pente_lineaire)")
-plt.gca().invert_yaxis() 
-plt.legend()
-plt.savefig("resultat_numerisation.png")
-plt.close()
-print("resultat global enregistré")
-
-# Tronquage des derniers points de sécurité pour éviter les anomalies de bordure sur les graphs
-x_val = x_val[:-10]
-y_raw = y_raw[:-10]
-y_final = y_final[:-10]
-
-# Détermination automatique du nombre de jours détectés
-jours_associes = (x_val // largeur_image).astype(int)
-nb_jours_trouves = jours_associes.max() + 1
-
-# --- 2. PLOTS INDIVIDUELS (Jour par Jour de 00h à 24h) ---
-for j in range(nb_jours_trouves):
-    masque_jour = (jours_associes == j)
-    if not np.any(masque_jour):
-        continue
-
-    x_jour_local = x_val[masque_jour] % largeur_image
-    y_jour_brut = y_raw[masque_jour]
-
-    plt.figure(figsize=(12, 6))
-    diffs = np.diff(x_jour_local)
-    y_visualisation = y_jour_brut.astype(float).copy()
+if __name__ == "__main__":
     
-    # Nettoyage visuel : évite de tracer des lignes géantes horizontales lors des sauts temporels
-    indices_sauts = np.where((diffs < 0) | (diffs > 100))[0]
-    for idx in indices_sauts:
-        y_visualisation[idx] = np.nan
+    # Indique ici le chemin de ton marégramme d'origine (image brute)
+    chemin_maregramme = "image/HPSC0178.tif" 
     
-    # Tracé de la courbe reconstruite du jour
-    plt.plot(x_jour_local, y_visualisation, color='blue', linewidth=2, linestyle='-', label=f'Reconstruction Jour {j+1}', zorder=5)
-    
-    # Superposition en tâche de fond gris clair de tous les points du squelette extrait par OpenCV
-    plt.scatter(points_list_np[:, 0], points_list_np[:, 1], s=1, color='lightgray', alpha=0.1, label='Squelette total')
+    if os.path.exists(chemin_maregramme):
+        print(f"[LANCEMENT COUPLAGE] Traitement direct de l'image : {chemin_maregramme}")
+        
+        # 1. On charge l'image brute pour en récupérer ses dimensions structurelles
+        img = cv2.imread(chemin_maregramme)
+        largeur_image = img.shape[1]
+        hauteur_image = img.shape[0]
+        
+        # 2. On génère un masque binaire temporaire à partir de l'image pour servir de "squelette de test"
+        gris = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+        squelette_simule = cv2.adaptiveThreshold(gris, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, 
+                                                 cv2.THRESH_BINARY_INV, 51, 15)
+        
+        # 3. On injecte l'image brute et le squelette simulé directement dans le tracker temporel
+        print("[PROCESSUS] Démarrage du suivi spatial KDTree & Régression...")
+        x_val, y_raw, y_final, points_list = reconstruction_maregramme(squelette_simule, img)
+        
+        # 4. On prépare les données pour la génération des graphiques
+        points_list_np = np.array(points_list)
 
-    # Configuration de l'axe des X pour afficher les heures réelles (pas de 2 heures)
-    heures_labels = [f"{h:02d}h" for h in range(0, 25, 2)]
-    positions_pixels = [(h * largeur_image) / 24 for h in range(0, 25, 2)]
-    plt.xticks(positions_pixels, heures_labels)
-    plt.xlim(0, largeur_image)
-    plt.ylim(0, hauteur_image)
-    plt.grid(axis='x', linestyle='--', alpha=0.4)
-    
-    plt.title(f"Marégramme - Jour {j+1}")
-    plt.xlabel("heure")
-    plt.ylabel("Pixels (Hauteur)")
-    plt.gca().invert_yaxis()
-    plt.legend()
-    
-    # Enregistrement dynamique de l'image (ex: graph_jour1.png, graph_jour2.png...)
-    nom_fichier = f"graph_jour{j+1}.png"
-    plt.savefig(nom_fichier)
-    plt.close()
-    
-    print(f"Graphique {nom_fichier} enregistré.")
+        # --- 1. PLOT GLOBAL (Signal complet sur toute la période) ---
+        plt.figure(figsize=(12, 6))
+        plt.plot(x_val, y_final, color='blue', label='Signal lissé (Combo 2)')
+        plt.scatter(x_val % 4722, y_raw, s=1, color='red', alpha=0.1, label='Points bruts')
+        plt.title("Numérisation avec OpenCV + Filtrage + KDTree + suivi de pente_lineaire)")
+        plt.gca().invert_yaxis() 
+        plt.legend()
+        plt.savefig("resultat_numerisation.png")
+        plt.close()
+        print("-> Graphique global 'resultat_numerisation.png' enregistré.")
+
+        # Tronquage de sécurité pour éviter les anomalies de bordure sur les graphiques journaliers
+        x_val = x_val[:-10]
+        y_raw = y_raw[:-10]
+        y_final = y_final[:-10]
+
+        # Détermination du nombre de jours détectés pour découper les axes
+        jours_associes = (x_val // largeur_image).astype(int)
+        nb_jours_trouves = jours_associes.max() + 1
+
+        # --- 2. PLOTS INDIVIDUELS (Jour par Jour de 00h à 24h) ---
+        for j in range(nb_jours_trouves):
+            masque_jour = (jours_associes == j)
+            if not np.any(masque_jour):
+                continue
+
+            x_jour_local = x_val[masque_jour] % largeur_image
+            y_jour_brut = y_raw[masque_jour]
+
+            plt.figure(figsize=(12, 6))
+            diffs = np.diff(x_jour_local)
+            y_visualisation = y_jour_brut.astype(float).copy()
+            
+            # Nettoyage visuel des lignes de transition inter-jours
+            indices_sauts = np.where((diffs < 0) | (diffs > 100))[0]
+            for idx in indices_sauts:
+                y_visualisation[idx] = np.nan
+            
+            # Tracé de la courbe reconstruite du jour
+            plt.plot(x_jour_local, y_visualisation, color='blue', linewidth=2, linestyle='-', label=f'Reconstruction Jour {j+1}', zorder=5)
+            
+            # Superposition en tâche de fond gris clair de tous les points du squelette extrait
+            plt.scatter(points_list_np[:, 0], points_list_np[:, 1], s=1, color='lightgray', alpha=0.1, label='Squelette total')
+
+            # Configuration des labels horaires (pas de 2 heures)
+            heures_labels = [f"{h:02d}h" for h in range(0, 25, 2)]
+            positions_pixels = [(h * largeur_image) / 24 for h in range(0, 25, 2)]
+            plt.xticks(positions_pixels, heures_labels)
+            plt.xlim(0, largeur_image)
+            plt.ylim(0, hauteur_image)
+            plt.grid(axis='x', linestyle='--', alpha=0.4)
+            
+            plt.title(f"Marégramme - Jour {j+1}")
+            plt.xlabel("heure")
+            plt.ylabel("Pixels (Hauteur)")
+            plt.gca().invert_yaxis()
+            plt.legend()
+            
+            # Enregistrement du fichier
+            nom_fichier = f"graph_jour{j+1}.png"
+            plt.savefig(nom_fichier)
+            plt.close()
+            print(f"-> Graphique individuel '{nom_fichier}' enregistré.")
+            
+        print("\n[SUCCÈS] Exécution complète du tracker et des tracés graphiques terminée.")
+    else:
+        print(f"[ERREUR] Le fichier '{chemin_maregramme}' est introuvable. Ajuste le chemin dans le code.")
