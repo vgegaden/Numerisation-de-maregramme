@@ -29,6 +29,7 @@ Assurez-vous d'avoir **Python 3.9+** installé sur votre machine.
 ```bash
 git clone [https://github.com/vgegaden/Numerisation-de-maregramme.git](https://github.com/vgegaden/Numerisation-de-maregramme.git)
 cd Numerisation-de-maregramme
+```
 
 ### 2. Créer un environnement virtuel (Recommandé)
 Il est fortement conseillé d'utiliser un environnement virtuel pour isoler les bibliothèques du projet et éviter les conflits de versions.
@@ -38,16 +39,19 @@ Il est fortement conseillé d'utiliser un environnement virtuel pour isoler les 
   python -m venv venv
   .\venv\Scripts\activate
   ```
+  
 
 * **Sur macOS/Linux :**
   ```bash
   python3 -m venv venv
   source venv/bin/activate
+  ```
 
 ### 3. Installer les dépendances
 Une fois votre environnement virtuel activé, installez l'ensemble des bibliothèques requises en exécutant la commande suivante :
   ```bash
   pip install --upgrade pip
 pip install -r requirements.txt
+```
 
  
