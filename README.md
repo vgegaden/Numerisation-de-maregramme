@@ -54,4 +54,5 @@ Une fois votre environnement virtuel activ√©, installez l'ensemble des biblioth√
 pip install -r requirements.txt
 ```
 
+### 4. Lancer le programme
  
