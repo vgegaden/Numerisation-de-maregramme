@@ -27,7 +27,7 @@ Assurez-vous d'avoir **Python 3.9+** installé sur votre machine.
 
 ### 1. Cloner le projet
 ```bash
-git clone [https://github.com/vgegaden/Numerisation-de-maregramme.git](https://github.com/vgegaden/Numerisation-de-maregramme.git)
+git clone https://github.com/vgegaden/Numerisation-de-maregramme.git
 cd Numerisation-de-maregramme
 ```
 
