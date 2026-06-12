@@ -1,3 +1,5 @@
+#fichier qui ne marche pas si on le lance indépendamment car il nécessite les résultats des fichiers précedents
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import medfilt
