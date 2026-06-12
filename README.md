@@ -55,4 +55,4 @@ pip install -r requirements.txt
 ```
 
 ### 4. Lancer le programme
- 
+ Après avoir placé vos marégrammes dans un dossier **image**, le programme peut être lancé directement avec la commande 
