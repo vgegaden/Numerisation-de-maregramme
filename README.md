@@ -1,6 +1,6 @@
 # Numérisation Automatique de Marégrammes Papier
 
-Ce projet a été réalisé par **Valentin GEGADEN** dans le cadre d'un stage de fin de Licence (L3) à **La Rochelle Université**, au sein des laboratoires **MIA** (Mathématiques, Image et Applications) et **LIENSs** (Littoral, ENvironnement et Sociétés), en collaboration avec les données historiques du **Shom** (Service hydrographique et océanographique de la Marine).
+Ce projet a été réalisé par **Valentin GEGADEN** dans le cadre d'un stage de fin de Licence (L3) à **La Rochelle Université**, au sein des laboratoires **MIA** (Mathématiques, Image et Applications) et **LIENSs** (Littoral, ENvironnement et Sociétés), en collaboration avec les données historiques du **Shom** (Service hydrographique et océanographique de la Marine). Ce projet a été encadré Thomas PÉLISSIÉ De MONTÉMONT, Lucrèce DJEUMENI NOUBISSIE et Thierry BOUWMANS.
 
 L'objectif principal est de développer un outil/algorithme capable d'automatiser la numérisation des marégrammes papier scannés (fichiers `.tif`) issus du port de Douala (Cameroun), afin de pallier les limites du logiciel semi-automatique actuel, NUNIEAU.
 
@@ -55,4 +55,9 @@ pip install -r requirements.txt
 ```
 
 ### 4. Lancer le programme
- Après avoir placé vos marégrammes dans un dossier **image**, le programme peut être lancé directement avec la commande 
+ Après avoir placé vos marégrammes dans un dossier **image** à la racine du projet, le programme peut être lancé directement avec la commande suivante :
+   ```bash
+  python3 -m numerisation
+```
+
+Ou alors vous pouvez lancer les programmes séparemment à partir du dossier **code_séparé**.
