@@ -60,4 +60,4 @@ pip install -r requirements.txt
   python3 -m numerisation
 ```
 
-Ou alors vous pouvez lancer les programmes séparemment à partir du dossier **code_séparé**.
+Ou alors vous pouvez lancer les programmes séparemment à partir du dossier **src**.
