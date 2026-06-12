@@ -1,3 +1,5 @@
+#programme ne pouvant être lancé séparemment dû à la dépendance avec les fichiers précédents
+
 import numpy as np
 import matplotlib.pyplot as plt
 from scipy.signal import medfilt
