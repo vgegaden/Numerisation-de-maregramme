@@ -78,7 +78,7 @@ def extraction_courbe_hsv(img):
 if __name__ == "__main__":
     
     # Indique ici le chemin de ton marégramme scanné d'origine (image brute)
-    chemin_maregramme = "image/HPSC0178.tif" 
+    chemin_maregramme = "image/HPSC0869.tif" 
     
     if os.path.exists(chemin_maregramme):
         print(f"[LANCEMENT] Traitement direct du marégramme : {chemin_maregramme}")
