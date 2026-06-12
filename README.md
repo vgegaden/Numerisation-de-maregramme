@@ -1,6 +1,6 @@
 # Numérisation Automatique de Marégrammes Papier
 
-Ce projet a été réalisé par **Valentin GEGADEN** dans le cadre d'un stage de fin de Licence (L3) à **La Rochelle Université**, au sein des laboratoires **MIA** (Mathématiques, Image et Applications) et **LIENSs** (Littoral, ENvironnement et Sociétés), en collaboration avec les données historiques du port autonome de Douala (Cameroun). Ce projet a été encadré Thomas PÉLISSIÉ DE MONTÉMONT, Lucrèce DJEUMENI NOUBISSIE et Thierry BOUWMANS.
+Ce projet a été réalisé par **Valentin GEGADEN** dans le cadre d'un stage de fin de Licence (L3) à **La Rochelle Université**, au sein des laboratoires **MIA** (Mathématiques, Image et Applications) et **LIENSs** (Littoral, ENvironnement et Sociétés), en collaboration avec les données historiques du Port Autonome de Douala (Cameroun). Ce projet a été encadré Thomas PÉLISSIÉ DE MONTÉMONT, Lucrèce DJEUMENI NOUBISSIE et Thierry BOUWMANS.
 
 L'objectif principal est de développer un outil/algorithme capable d'automatiser la numérisation des marégrammes papier scannés (fichiers `.tif`) issus du port de Douala (Cameroun), afin de pallier les limites du logiciel semi-automatique actuel, NUNIEAU.
 
